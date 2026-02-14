@@ -81,5 +81,67 @@ def test_full_pilot_flow():
     print("\n🎉 Full pilot flow passed!")
 
 
+def test_batch_verify():
+    """Test batch verification of multiple attestations."""
+    # Create identities
+    r1 = client.post("/identity/create", json={"label": "alice"})
+    alice = r1.json()
+    r2 = client.post("/identity/create", json={"label": "bob"})
+    bob = r2.json()
+    
+    # Create two valid attestations
+    att1 = client.post("/attestation/create", json={
+        "witness_private_key": alice["private_key"],
+        "subject_agent_id": bob["agent_id"],
+        "task": "review", "evidence": "https://example.com/1",
+    }).json()["attestation"]
+    
+    att2 = client.post("/attestation/create", json={
+        "witness_private_key": bob["private_key"],
+        "subject_agent_id": alice["agent_id"],
+        "task": "collab", "evidence": "https://example.com/2",
+    }).json()["attestation"]
+    
+    # One tampered attestation
+    bad = dict(att1)
+    bad["subject"] = "tampered-agent-id"
+    
+    r = client.post("/attestation/batch-verify", json={"attestations": [att1, att2, bad]})
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 3
+    assert data["valid_count"] == 2
+    assert data["results"][0]["valid"] is True
+    assert data["results"][1]["valid"] is True
+    assert data["results"][2]["valid"] is False
+    print("✅ Batch verify: 2 valid, 1 invalid")
+
+
+def test_agent_reputation():
+    """Test agent reputation summary endpoint."""
+    r1 = client.post("/identity/create", json={"label": "rep-witness"})
+    w = r1.json()
+    r2 = client.post("/identity/create", json={"label": "rep-subject"})
+    s = r2.json()
+    
+    # Create and add attestation
+    att = client.post("/attestation/create", json={
+        "witness_private_key": w["private_key"],
+        "subject_agent_id": s["agent_id"],
+        "task": "security-audit", "evidence": "https://example.com/audit",
+    }).json()["attestation"]
+    client.post("/chain/add", json={"attestation": att})
+    
+    # Check reputation
+    r = client.get(f"/agent/{s['agent_id']}/reputation")
+    assert r.status_code == 200
+    rep = r.json()
+    assert rep["attestations_received"] >= 1
+    assert rep["trust_score"] > 0
+    assert "security-audit" in rep["tasks_received"]
+    assert rep["registered"] is True
+    print(f"✅ Reputation: score={rep['trust_score']}, received={rep['attestations_received']}")
+
+
 if __name__ == "__main__":
     test_full_pilot_flow()
