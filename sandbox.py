@@ -7,8 +7,10 @@ Ed25519 keys in JWK format, as requested by Kit_Fox.
 import base64
 import json
 import time
+import threading
 from typing import Optional
 
+import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
@@ -26,6 +28,7 @@ app = FastAPI(
 _identities: dict[str, AgentIdentity] = {}  # agent_id -> identity
 _jwk_map: dict[str, dict] = {}  # agent_id -> JWK keypair (public + private)
 _chain = TrustChain()
+_webhooks: list[dict] = []  # {"url": str, "events": list[str], "filter_issuer": str|None, "filter_subject": str|None}
 
 
 # --- Helpers ---
@@ -86,6 +89,15 @@ class TrustScoreRequest(BaseModel):
     agent_id: str
     scope: Optional[str] = None
 
+class BatchVerifyRequest(BaseModel):
+    attestations: list[VerifyAttestationRequest]
+
+class WebhookSubscribeRequest(BaseModel):
+    url: str
+    events: list[str] = ["attestation.created", "chain.extended", "score.updated"]
+    filter_issuer: Optional[str] = None
+    filter_subject: Optional[str] = None
+
 
 # --- Endpoints ---
 
@@ -98,8 +110,12 @@ def sandbox_root():
             "POST /sandbox/keys/generate",
             "POST /sandbox/attestations/create",
             "POST /sandbox/attestations/verify",
+            "POST /sandbox/attestations/batch-verify",
             "GET  /sandbox/chain/{agent_id}",
+            "GET  /sandbox/agent/{agent_id}/reputation",
             "POST /sandbox/trust/score",
+            "POST /sandbox/webhooks/subscribe",
+            "GET  /sandbox/webhooks",
         ],
     }
 
@@ -135,8 +151,13 @@ def create_attestation(req: CreateAttestationRequest):
     if not added:
         raise HTTPException(400, "Attestation signature verification failed after signing (bug?)")
 
+    att_dict = att.to_dict()
+    _dispatch_webhooks("attestation.created", att_dict)
+    if len(_chain.attestations) > 1:
+        _dispatch_webhooks("chain.extended", {"agent_id": req.subject_id, "chain_size": len(_chain.attestations)})
+
     return {
-        "attestation": att.to_dict(),
+        "attestation": att_dict,
         "chain_size": len(_chain.attestations),
         "added_to_chain": True,
     }
@@ -188,6 +209,102 @@ def trust_score(req: TrustScoreRequest):
         "unique_witnesses": len(witnesses),
         "scope": req.scope,
     }
+
+
+def _dispatch_webhooks(event: str, payload: dict):
+    """Fire-and-forget webhook delivery in background thread."""
+    def _send():
+        for wh in _webhooks:
+            if event not in wh["events"]:
+                continue
+            if wh.get("filter_issuer") and payload.get("witness") != wh["filter_issuer"]:
+                continue
+            if wh.get("filter_subject") and payload.get("subject") != wh["filter_subject"]:
+                continue
+            try:
+                httpx.post(wh["url"], json={"event": event, "data": payload}, timeout=5)
+            except Exception:
+                pass  # best-effort delivery
+    threading.Thread(target=_send, daemon=True).start()
+
+
+@app.post("/sandbox/attestations/batch-verify")
+def batch_verify(req: BatchVerifyRequest):
+    """Verify multiple attestations in a single call. Returns per-attestation results."""
+    results = []
+    for item in req.attestations:
+        try:
+            att = Attestation(
+                subject=item.subject,
+                witness=item.witness,
+                task=item.task,
+                evidence=item.evidence,
+                timestamp=item.timestamp,
+                signature=item.signature,
+                witness_pubkey=item.witness_pubkey,
+            )
+            valid = att.verify()
+            results.append({"attestation_id": att.attestation_id, "valid": valid})
+        except Exception as e:
+            results.append({"valid": False, "error": str(e)})
+    return {
+        "total": len(results),
+        "valid_count": sum(1 for r in results if r.get("valid")),
+        "results": results,
+    }
+
+
+@app.get("/sandbox/agent/{agent_id}/reputation")
+def agent_reputation(agent_id: str):
+    """Full reputation summary for an agent: score, attestation history, peer graph."""
+    received = _chain._by_subject.get(agent_id, [])
+    given = _chain._by_witness.get(agent_id, [])
+    witnesses = set(a.witness for a in received)
+    subjects = set(a.subject for a in given)
+    score = _chain.trust_score(agent_id)
+
+    # Task distribution
+    tasks = {}
+    for a in received:
+        tasks[a.task] = tasks.get(a.task, 0) + 1
+
+    return {
+        "agent_id": agent_id,
+        "trust_score": round(score, 4),
+        "attestations_received": len(received),
+        "attestations_given": len(given),
+        "unique_witnesses": len(witnesses),
+        "unique_subjects_attested": len(subjects),
+        "task_distribution": tasks,
+        "peers": {
+            "witnesses": list(witnesses),
+            "attested_for": list(subjects),
+        },
+    }
+
+
+@app.post("/sandbox/webhooks/subscribe")
+def webhook_subscribe(req: WebhookSubscribeRequest):
+    """Subscribe a URL to receive event callbacks (attestation.created, chain.extended, score.updated)."""
+    valid_events = {"attestation.created", "chain.extended", "score.updated"}
+    invalid = set(req.events) - valid_events
+    if invalid:
+        raise HTTPException(400, f"Invalid events: {invalid}. Valid: {valid_events}")
+    sub = {
+        "id": f"wh_{len(_webhooks)+1}",
+        "url": req.url,
+        "events": req.events,
+        "filter_issuer": req.filter_issuer,
+        "filter_subject": req.filter_subject,
+    }
+    _webhooks.append(sub)
+    return {"subscription": sub, "active_webhooks": len(_webhooks)}
+
+
+@app.get("/sandbox/webhooks")
+def list_webhooks():
+    """List active webhook subscriptions."""
+    return {"webhooks": _webhooks, "count": len(_webhooks)}
 
 
 @app.get("/sandbox/health")
