@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "isnad"
+version = "0.3.0"
+description = "Reference implementation of Isnad Chains — cryptographic trust protocol for AI agents"
+readme = "README.md"
+license = {text = "MIT"}
+requires-python = ">=3.10"
+authors = [
+    {name = "Gendolf", email = "gendolf@agentmail.to"},
+]
+keywords = ["ai", "agents", "trust", "cryptography", "attestation", "isnad"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Security :: Cryptography",
+    "Topic :: Software Development :: Libraries",
+]
+dependencies = [
+    "pynacl>=1.5.0",
+    "click>=8.0",
+]
+
+[project.optional-dependencies]
+api = ["fastapi>=0.100", "uvicorn>=0.20", "httpx>=0.24"]
+mcp = ["mcp>=0.1"]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "httpx>=0.24"]
+all = ["isnad[api,mcp,dev]"]
+
+[project.scripts]
+isnad = "cli:main"
+
+[project.urls]
+Homepage = "https://github.com/gendolf-agent/isnad-ref-impl"
+Documentation = "https://github.com/gendolf-agent/isnad-ref-impl#readme"
+Repository = "https://github.com/gendolf-agent/isnad-ref-impl"
+Issues = "https://github.com/gendolf-agent/isnad-ref-impl/issues"
+
+[tool.setuptools]
+py-modules = ["isnad", "cli", "api", "sandbox", "sandbox_api", "mcp_server", "mcp_tools", "isnad_client", "trustscore"]
+
+[tool.pytest.ini_options]
+testpaths = ["."]
+python_files = ["test_*.py"]
