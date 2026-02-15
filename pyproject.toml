@@ -36,17 +36,15 @@ dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "httpx>=0.24"]
 all = ["isnad[api,mcp,dev]"]
 
 [project.scripts]
-isnad = "cli:main"
+isnad = "isnad.cli:main"
 
 [project.urls]
-Homepage = "https://github.com/gendolf-agent/isnad-ref-impl"
-Documentation = "https://github.com/gendolf-agent/isnad-ref-impl#readme"
-Repository = "https://github.com/gendolf-agent/isnad-ref-impl"
-Issues = "https://github.com/gendolf-agent/isnad-ref-impl/issues"
+Homepage = "https://github.com/Danieliushka/isnad-ref-impl"
+Repository = "https://github.com/Danieliushka/isnad-ref-impl"
 
-[tool.setuptools]
-py-modules = ["isnad", "cli", "api", "sandbox", "sandbox_api", "mcp_server", "mcp_tools", "isnad_client", "trustscore"]
+[tool.setuptools.packages.find]
+where = ["src"]
 
 [tool.pytest.ini_options]
-testpaths = ["."]
+testpaths = ["tests"]
 python_files = ["test_*.py"]

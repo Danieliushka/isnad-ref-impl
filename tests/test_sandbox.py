@@ -2,7 +2,7 @@
 """End-to-end test for the sandbox API — simulates Kit_Fox pilot flow."""
 
 from fastapi.testclient import TestClient
-from sandbox_api import app
+from isnad.sandbox_api import app
 
 client = TestClient(app)
 

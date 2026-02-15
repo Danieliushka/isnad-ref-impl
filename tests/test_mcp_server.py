@@ -2,8 +2,8 @@
 
 import json
 import unittest
-from mcp_server import MCPHandler
-from isnad import AgentIdentity, Attestation, TrustChain
+from isnad.mcp_server import MCPHandler
+from isnad.core import AgentIdentity, Attestation, TrustChain
 
 
 class TestMCPTools(unittest.TestCase):

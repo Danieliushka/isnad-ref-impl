@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
-from isnad import TrustChain, Attestation, AgentIdentity
+from isnad.core import TrustChain, Attestation, AgentIdentity
 
 app = FastAPI(
     title="isnad API",

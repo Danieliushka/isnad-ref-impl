@@ -14,7 +14,7 @@ Usage:
 import argparse
 import json
 import sys
-from isnad_client import IsnadClient, IsnadError
+from isnad.client import IsnadClient, IsnadError
 
 DEFAULT_URL = "http://localhost:8420"
 

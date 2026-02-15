@@ -10,7 +10,7 @@ from typing import Optional
 
 import sys, os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from isnad import Attestation, TrustChain
+from isnad.core import Attestation, TrustChain
 
 
 # ─── Records ───────────────────────────────────────────────────────

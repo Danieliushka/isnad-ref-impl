@@ -1,6 +1,6 @@
 """Tests for isnad_client SDK."""
 import pytest
-from isnad_client import IsnadClient, IsnadError
+from isnad.client import IsnadClient, IsnadError
 
 BASE = "http://localhost:8420"
 

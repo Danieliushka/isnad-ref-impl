@@ -11,7 +11,7 @@ Usage:
 import json
 import argparse
 from http.server import HTTPServer, BaseHTTPRequestHandler
-from isnad import AgentIdentity, Attestation, TrustChain
+from isnad.core import AgentIdentity, Attestation, TrustChain
 
 
 class MCPHandler(BaseHTTPRequestHandler):

@@ -14,7 +14,7 @@ import httpx
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 
-from isnad import AgentIdentity, Attestation, TrustChain
+from isnad.core import AgentIdentity, Attestation, TrustChain
 from nacl.signing import SigningKey
 from nacl.encoding import RawEncoder
 

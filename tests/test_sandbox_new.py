@@ -1,6 +1,6 @@
 """Tests for new sandbox endpoints: batch-verify, reputation, webhooks."""
 from fastapi.testclient import TestClient
-from sandbox import app
+from isnad.sandbox import app
 
 client = TestClient(app)
 

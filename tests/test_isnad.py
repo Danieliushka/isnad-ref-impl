@@ -4,7 +4,7 @@
 import json
 import os
 import tempfile
-from isnad import AgentIdentity, Attestation, TrustChain
+from isnad.core import AgentIdentity, Attestation, TrustChain
 
 
 def test_identity_generation():

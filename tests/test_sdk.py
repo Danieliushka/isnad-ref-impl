@@ -1,6 +1,6 @@
 """Tests for isnad_client.py SDK against live sandbox."""
 import pytest
-from isnad_client import IsnadClient
+from isnad.client import IsnadClient
 
 BASE = "http://localhost:8420"
 

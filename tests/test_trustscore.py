@@ -4,9 +4,9 @@ import math
 import pytest
 from datetime import datetime, timezone, timedelta
 
-from isnad import AgentIdentity, Attestation, TrustChain
-from trustscore.bridge import IsnadBridge, InteractionRecord, EndorsementRecord
-from trustscore.scorer import TrustScorer
+from isnad.core import AgentIdentity, Attestation, TrustChain
+from isnad.trustscore.bridge import IsnadBridge, InteractionRecord, EndorsementRecord
+from isnad.trustscore.scorer import TrustScorer
 
 
 # ─── Fixtures ──────────────────────────────────────────────────────
