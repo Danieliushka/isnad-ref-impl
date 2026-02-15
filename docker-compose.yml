@@ -1,0 +1,17 @@
+version: '3.8'
+
+services:
+  isnad-api:
+    build: .
+    ports:
+      - "8000:8000"
+    environment:
+      - ISNAD_LOG_LEVEL=info
+    restart: unless-stopped
+
+  isnad-mcp:
+    build: .
+    ports:
+      - "3000:3000"
+    command: ["python", "mcp_server.py"]
+    restart: unless-stopped
