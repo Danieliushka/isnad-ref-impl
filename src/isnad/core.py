@@ -163,14 +163,17 @@ class TrustChain:
     CHAIN_DECAY = 0.7       # Trust reduces by 30% per hop
     SAME_WITNESS_DECAY = 0.5  # 50% penalty for repeated same witness
     
-    def __init__(self):
+    def __init__(self, revocation_registry: Optional["RevocationRegistry"] = None):
         self.attestations: list[Attestation] = []
         self._by_subject: dict[str, list[Attestation]] = {}
         self._by_witness: dict[str, list[Attestation]] = {}
+        self.revocations = revocation_registry
     
     def add(self, attestation: Attestation) -> bool:
-        """Add attestation if valid. Returns True if added."""
+        """Add attestation if valid and not revoked. Returns True if added."""
         if not attestation.verify():
+            return False
+        if self.revocations and self.revocations.is_revoked(attestation.attestation_id):
             return False
         self.attestations.append(attestation)
         self._by_subject.setdefault(attestation.subject, []).append(attestation)
@@ -183,7 +186,12 @@ class TrustChain:
         
         Score = sum of attestation weights, capped at 1.0
         Each attestation: base_weight * chain_decay^hops * same_witness_penalty
+        Revoked agents always return 0.0.
         """
+        # Revoked agents get zero trust
+        if self.revocations and self.revocations.is_revoked(agent_id, scope=scope):
+            return 0.0
+
         attestations = self._by_subject.get(agent_id, [])
         if not attestations:
             return 0.0
@@ -257,6 +265,117 @@ class TrustChain:
             chain._by_subject.setdefault(att.subject, []).append(att)
             chain._by_witness.setdefault(att.witness, []).append(att)
         return chain
+
+
+# ─── Revocation Registry ──────────────────────────────────────────
+
+class RevocationEntry:
+    """A signed revocation of an agent or attestation."""
+
+    def __init__(self, target_id: str, reason: str, revoked_by: str,
+                 scope: Optional[str] = None, timestamp: Optional[float] = None,
+                 signature: Optional[str] = None):
+        self.target_id = target_id  # agent_id or attestation_id
+        self.reason = reason
+        self.revoked_by = revoked_by
+        self.scope = scope  # None = revoke all scopes
+        self.timestamp = timestamp or time.time()
+        self.signature = signature
+
+    def payload(self) -> bytes:
+        data = {
+            "action": "revoke",
+            "target_id": self.target_id,
+            "reason": self.reason,
+            "revoked_by": self.revoked_by,
+            "scope": self.scope,
+            "timestamp": self.timestamp,
+        }
+        return json.dumps(data, sort_keys=True).encode()
+
+    def sign(self, identity: AgentIdentity) -> "RevocationEntry":
+        sig = identity.sign(self.payload())
+        self.signature = sig.hex()
+        return self
+
+    def verify(self, public_key_hex: str) -> bool:
+        if not self.signature:
+            return False
+        try:
+            vk = VerifyKey(bytes.fromhex(public_key_hex))
+            vk.verify(self.payload(), bytes.fromhex(self.signature))
+            return True
+        except (BadSignatureError, Exception):
+            return False
+
+    def to_dict(self) -> dict:
+        return {
+            "target_id": self.target_id,
+            "reason": self.reason,
+            "revoked_by": self.revoked_by,
+            "scope": self.scope,
+            "timestamp": self.timestamp,
+            "signature": self.signature,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "RevocationEntry":
+        return cls(
+            target_id=data["target_id"],
+            reason=data["reason"],
+            revoked_by=data["revoked_by"],
+            scope=data.get("scope"),
+            timestamp=data.get("timestamp", time.time()),
+            signature=data.get("signature"),
+        )
+
+
+class RevocationRegistry:
+    """Registry for revoked agents and attestations.
+
+    Enterprise use case: instantly invalidate compromised agent credentials
+    or fraudulent attestations across the trust network.
+    """
+
+    def __init__(self):
+        self._revoked: dict[str, list[RevocationEntry]] = {}
+
+    def revoke(self, entry: RevocationEntry) -> None:
+        """Add a signed revocation entry."""
+        self._revoked.setdefault(entry.target_id, []).append(entry)
+
+    def is_revoked(self, target_id: str, scope: Optional[str] = None) -> bool:
+        """Check if a target (agent or attestation) is revoked."""
+        entries = self._revoked.get(target_id, [])
+        for e in entries:
+            if e.scope is None:  # global revocation
+                return True
+            if scope and e.scope == scope:
+                return True
+        return False
+
+    def get_revocations(self, target_id: str) -> list[RevocationEntry]:
+        """Get all revocation entries for a target."""
+        return self._revoked.get(target_id, [])
+
+    @property
+    def all_entries(self) -> list[RevocationEntry]:
+        """All revocation entries in the registry."""
+        return [e for entries in self._revoked.values() for e in entries]
+
+    def save(self, filepath: str):
+        data = [e.to_dict() for e in self.all_entries]
+        with open(filepath, "w") as f:
+            json.dump(data, f, indent=2)
+
+    @classmethod
+    def load(cls, filepath: str) -> "RevocationRegistry":
+        registry = cls()
+        with open(filepath) as f:
+            data = json.load(f)
+        for item in data:
+            registry.revoke(RevocationEntry.from_dict(item))
+        return registry
 
 
 # ─── CLI ───────────────────────────────────────────────────────────

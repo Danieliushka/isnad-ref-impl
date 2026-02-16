@@ -12,7 +12,7 @@ from pydantic import BaseModel
 
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
-from isnad.core import TrustChain, Attestation, AgentIdentity
+from isnad.core import TrustChain, Attestation, AgentIdentity, RevocationEntry, RevocationRegistry
 
 app = FastAPI(
     title="isnad API",
@@ -22,7 +22,8 @@ app = FastAPI(
 
 # --- In-memory store (demo) ---
 identities: dict[str, AgentIdentity] = {}
-trust_chain = TrustChain()
+revocation_registry = RevocationRegistry()
+trust_chain = TrustChain(revocation_registry=revocation_registry)
 
 
 # --- Models ---
@@ -140,6 +141,48 @@ def get_chain_stats():
         "unique_subjects": len(trust_chain._by_subject),
         "unique_witnesses": len(trust_chain._by_witness),
     }
+
+class RevokeRequest(BaseModel):
+    target_id: str
+    reason: str
+    revoked_by: str
+    scope: Optional[str] = None
+
+
+@app.post("/revoke")
+def revoke(req: RevokeRequest):
+    """Revoke an agent or attestation. Revoked agents get zero trust score."""
+    if req.revoked_by not in identities:
+        raise HTTPException(404, f"Revoker identity {req.revoked_by} not found")
+    
+    entry = RevocationEntry(
+        target_id=req.target_id,
+        reason=req.reason,
+        revoked_by=req.revoked_by,
+        scope=req.scope,
+    )
+    entry.sign(identities[req.revoked_by])
+    revocation_registry.revoke(entry)
+    
+    return {
+        "status": "revoked",
+        "target_id": req.target_id,
+        "reason": req.reason,
+        "scope": req.scope or "global",
+        "revoked_by": req.revoked_by,
+    }
+
+
+@app.get("/revocations/{target_id}")
+def get_revocations(target_id: str):
+    """Check revocation status for an agent or attestation."""
+    entries = revocation_registry.get_revocations(target_id)
+    return {
+        "target_id": target_id,
+        "is_revoked": revocation_registry.is_revoked(target_id),
+        "revocations": [e.to_dict() for e in entries],
+    }
+
 
 @app.get("/health")
 def health():
