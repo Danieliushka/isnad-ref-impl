@@ -146,6 +146,38 @@ def health():
     return {"status": "ok", "timestamp": time.time()}
 
 
+# --- Atlas TrustScore Integration ---
+
+class AtlasScoreRequest(BaseModel):
+    agent_id: str
+    threshold: Optional[float] = None  # For trust gate
+
+@app.post("/atlas/score")
+def atlas_score(req: AtlasScoreRequest):
+    """Get combined isnad + Atlas TrustScore for an agent."""
+    try:
+        from isnad.trustscore.atlas import AtlasIntegration
+    except ImportError:
+        raise HTTPException(status_code=503, detail="httpx not installed — Atlas integration unavailable")
+
+    with AtlasIntegration(trust_chain) as atlas:
+        score = atlas.score_agent(req.agent_id)
+        return score.to_dict()
+
+@app.post("/atlas/gate")
+def atlas_gate(req: AtlasScoreRequest):
+    """Binary trust gate: allow/deny based on combined isnad + Atlas score."""
+    try:
+        from isnad.trustscore.atlas import AtlasIntegration
+    except ImportError:
+        raise HTTPException(status_code=503, detail="httpx not installed — Atlas integration unavailable")
+
+    threshold = req.threshold or 0.5
+    with AtlasIntegration(trust_chain) as atlas:
+        result = atlas.trust_gate(req.agent_id, threshold=threshold)
+        return result
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8420)
