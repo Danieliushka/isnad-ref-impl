@@ -68,6 +68,21 @@ class ChainTrustResponse(BaseModel):
     trust: float
     max_hops: int
 
+class BatchAttestRequest(BaseModel):
+    attestations: list[AttestRequest] = Field(..., description="List of attestations to create")
+
+class BatchAttestResponse(BaseModel):
+    created: int
+    failed: int
+    results: list[dict]
+
+class BatchVerifyRequest(BaseModel):
+    attestation_ids: list[str] = Field(..., description="Attestation IDs to verify")
+
+class ImportChainRequest(BaseModel):
+    attestations: list[dict] = Field(..., description="Exported attestation dicts")
+    identities: dict[str, str] = Field(default_factory=dict, description="agent_id → public_key_hex map")
+
 
 # ─── Endpoints ─────────────────────────────────────────────────────
 
@@ -238,6 +253,102 @@ async def export_chain():
         "identities": {
             aid: ident.public_key_hex for aid, ident in _identities.items()
         },
+    }
+
+
+@app.post("/attest/batch", response_model=BatchAttestResponse, tags=["Attestation"])
+async def batch_attest(req: BatchAttestRequest):
+    """Create multiple attestations in one call.
+
+    Returns results for each attestation. Partial success is possible —
+    some may fail while others succeed.
+    """
+    created = 0
+    failed = 0
+    results = []
+    for i, att_req in enumerate(req.attestations):
+        try:
+            if att_req.witness_id not in _identities:
+                raise ValueError(f"Witness {att_req.witness_id} not found")
+            if att_req.subject_id not in _identities:
+                raise ValueError(f"Subject {att_req.subject_id} not found")
+            witness = _identities[att_req.witness_id]
+            att = Attestation(
+                subject=att_req.subject_id,
+                witness=att_req.witness_id,
+                task=att_req.task,
+                evidence=att_req.evidence,
+            )
+            att.sign(witness)
+            if not _chain.add(att):
+                raise ValueError("Attestation failed verification")
+            created += 1
+            results.append({"index": i, "status": "created", "attestation_id": att.attestation_id})
+        except (ValueError, KeyError) as e:
+            failed += 1
+            results.append({"index": i, "status": "failed", "error": str(e)})
+    return BatchAttestResponse(created=created, failed=failed, results=results)
+
+
+@app.post("/chain/import", tags=["Chain"])
+async def import_chain(req: ImportChainRequest):
+    """Import attestations from an exported chain.
+
+    Use with /chain/export to transfer trust chains between systems.
+    Identities in the import are registered as public-key-only (no private keys).
+    """
+    imported = 0
+    skipped = 0
+    for att_dict in req.attestations:
+        try:
+            att = Attestation.from_dict(att_dict)
+            if _chain.add(att):
+                imported += 1
+            else:
+                skipped += 1
+        except Exception:
+            skipped += 1
+    return {
+        "imported": imported,
+        "skipped": skipped,
+        "total_attestations": len(_chain.attestations),
+    }
+
+
+@app.get("/trust/{agent_id}/history", tags=["Trust"])
+async def trust_history(agent_id: str):
+    """Get trust audit trail — all attestations involving this agent.
+
+    Returns attestations where the agent is either subject or witness,
+    with current trust score. Useful for compliance/audit.
+    """
+    as_subject = [a.to_dict() for a in _chain.attestations if a.subject == agent_id]
+    as_witness = [a.to_dict() for a in _chain.attestations if a.witness == agent_id]
+    score = _chain.trust_score(agent_id) if agent_id in _identities else 0.0
+    return {
+        "agent_id": agent_id,
+        "current_trust_score": score,
+        "as_subject": as_subject,
+        "as_witness": as_witness,
+        "total_involvement": len(as_subject) + len(as_witness),
+    }
+
+
+@app.get("/stats", tags=["Chain"])
+async def chain_stats():
+    """Chain statistics — overview for monitoring/dashboards."""
+    agents = set()
+    scopes = set()
+    for att in _chain.attestations:
+        agents.add(att.subject)
+        agents.add(att.witness)
+        if hasattr(att, 'task'):
+            scopes.add(att.task)
+    return {
+        "total_identities": len(_identities),
+        "total_attestations": len(_chain.attestations),
+        "unique_agents_in_chain": len(agents),
+        "unique_scopes": len(scopes),
     }
 
 

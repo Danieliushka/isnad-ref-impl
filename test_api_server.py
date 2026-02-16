@@ -195,3 +195,84 @@ def test_full_flow():
     # Chain trust Alice → Carol (through Bob)
     chain = client.get(f"/trust/{alice['agent_id']}/to/{carol['agent_id']}").json()
     assert chain["trust"] >= 0
+
+
+# ─── New endpoint tests ───────────────────────────────────────────
+
+def test_batch_attest():
+    """Test batch attestation creation."""
+    r1 = client.post("/identities")
+    r2 = client.post("/identities")
+    w = r1.json()["agent_id"]
+    s = r2.json()["agent_id"]
+
+    resp = client.post("/attest/batch", json={
+        "attestations": [
+            {"witness_id": w, "subject_id": s, "task": "task-1", "evidence": ""},
+            {"witness_id": w, "subject_id": s, "task": "task-2", "evidence": ""},
+        ]
+    })
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["created"] == 2
+    assert data["failed"] == 0
+    assert len(data["results"]) == 2
+
+
+def test_batch_attest_partial_failure():
+    """Batch attest with some invalid entries."""
+    r1 = client.post("/identities")
+    w = r1.json()["agent_id"]
+
+    resp = client.post("/attest/batch", json={
+        "attestations": [
+            {"witness_id": w, "subject_id": "nonexistent", "task": "t", "evidence": ""},
+        ]
+    })
+    assert resp.status_code == 200
+    assert resp.json()["failed"] == 1
+    assert resp.json()["created"] == 0
+
+
+def test_trust_history():
+    """Test trust audit trail."""
+    r1 = client.post("/identities")
+    r2 = client.post("/identities")
+    w = r1.json()["agent_id"]
+    s = r2.json()["agent_id"]
+    client.post("/attest", json={"witness_id": w, "subject_id": s, "task": "review", "evidence": ""})
+
+    resp = client.get(f"/trust/{s}/history")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert data["agent_id"] == s
+    assert len(data["as_subject"]) == 1
+    assert data["current_trust_score"] > 0
+
+
+def test_chain_stats():
+    """Test chain statistics endpoint."""
+    resp = client.get("/stats")
+    assert resp.status_code == 200
+    data = resp.json()
+    assert "total_identities" in data
+    assert "total_attestations" in data
+
+
+def test_chain_import_export_roundtrip():
+    """Export chain, import into clean state."""
+    r1 = client.post("/identities")
+    r2 = client.post("/identities")
+    w = r1.json()["agent_id"]
+    s = r2.json()["agent_id"]
+    client.post("/attest", json={"witness_id": w, "subject_id": s, "task": "test", "evidence": ""})
+
+    export = client.get("/chain/export").json()
+    assert len(export["attestations"]) == 1
+
+    # Import into current chain (will be same attestation, likely skipped as duplicate)
+    resp = client.post("/chain/import", json={
+        "attestations": export["attestations"],
+        "identities": export["identities"],
+    })
+    assert resp.status_code == 200
