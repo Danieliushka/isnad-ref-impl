@@ -132,6 +132,110 @@ def cmd_demo(client: IsnadClient, args):
     print("\n🎉 Demo complete! Both agents now have verifiable trust chains.")
 
 
+def cmd_audit(client: IsnadClient, args):
+    """Generate compliance audit report for an agent."""
+    print(f"📋 Compliance Audit Report — {args.agent_id}\n")
+    print(f"{'='*60}")
+    
+    # Get chain
+    chain = client.get_chain(args.agent_id)
+    attestations = chain.get("attestations", chain.get("chain", []))
+    
+    # Get score
+    score = client.trust_score(args.agent_id)
+    ts = score.get("trust_score", score.get("score", "N/A"))
+    level = score.get("level", "unknown")
+    
+    print(f"Agent:        {args.agent_id}")
+    print(f"Trust Score:  {ts}")
+    print(f"Trust Level:  {level}")
+    print(f"Attestations: {len(attestations)}")
+    print(f"{'='*60}\n")
+    
+    # Verify each attestation
+    valid_count = 0
+    invalid_count = 0
+    witnesses = set()
+    tasks = {}
+    
+    for att in attestations:
+        att_id = att.get("attestation_id", att.get("id", "unknown"))
+        try:
+            v = client.verify_attestation(att_id)
+            is_valid = v.get("valid", False)
+        except Exception:
+            is_valid = False
+        
+        if is_valid:
+            valid_count += 1
+            status = "✅"
+        else:
+            invalid_count += 1
+            status = "❌"
+        
+        witness = att.get("witness_id", "?")
+        task = att.get("task", "?")
+        outcome = att.get("outcome", "?")
+        witnesses.add(witness)
+        tasks[task] = tasks.get(task, 0) + 1
+        
+        print(f"  {status} [{att_id[:12]}...] {witness[:12]}... → {task} ({outcome})")
+    
+    print(f"\n{'='*60}")
+    print(f"Summary:")
+    print(f"  Valid:      {valid_count}/{len(attestations)}")
+    print(f"  Invalid:    {invalid_count}/{len(attestations)}")
+    print(f"  Witnesses:  {len(witnesses)} unique")
+    print(f"  Tasks:      {', '.join(f'{k}({v})' for k,v in tasks.items())}")
+    
+    integrity = "PASS" if invalid_count == 0 and len(attestations) > 0 else "FAIL" if invalid_count > 0 else "INSUFFICIENT DATA"
+    print(f"  Integrity:  {integrity}")
+    print(f"{'='*60}")
+    
+    if args.output:
+        import json as _json
+        report = {
+            "agent_id": args.agent_id,
+            "trust_score": ts,
+            "level": level,
+            "total_attestations": len(attestations),
+            "valid": valid_count,
+            "invalid": invalid_count,
+            "unique_witnesses": len(witnesses),
+            "tasks": tasks,
+            "integrity": integrity,
+        }
+        with open(args.output, "w") as f:
+            _json.dump(report, f, indent=2)
+        print(f"\n📄 Report saved to {args.output}")
+    
+    return {"integrity": integrity, "valid": valid_count, "invalid": invalid_count}
+
+
+def cmd_export(client: IsnadClient, args):
+    """Export agent data as JSON for integration."""
+    chain = client.get_chain(args.agent_id)
+    score = client.trust_score(args.agent_id)
+    
+    export = {
+        "version": "isnad/1.0",
+        "agent_id": args.agent_id,
+        "trust_score": score,
+        "chain": chain,
+    }
+    
+    output = json.dumps(export, indent=2)
+    
+    if args.output:
+        with open(args.output, "w") as f:
+            f.write(output)
+        print(f"📦 Exported to {args.output}")
+    else:
+        print(output)
+    
+    return export
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="isnad CLI — Agent Trust Protocol",
@@ -160,6 +264,14 @@ def main():
     
     sub.add_parser("demo", help="Run interactive demo")
     
+    p_audit = sub.add_parser("audit", help="Generate compliance audit report")
+    p_audit.add_argument("agent_id", help="Agent ID to audit")
+    p_audit.add_argument("-o", "--output", help="Save report to JSON file")
+    
+    p_export = sub.add_parser("export", help="Export agent data as JSON")
+    p_export.add_argument("agent_id", help="Agent ID")
+    p_export.add_argument("-o", "--output", help="Output file (stdout if omitted)")
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -175,6 +287,8 @@ def main():
         "score": cmd_score,
         "chain": cmd_chain,
         "demo": cmd_demo,
+        "audit": cmd_audit,
+        "export": cmd_export,
     }
     
     try:
