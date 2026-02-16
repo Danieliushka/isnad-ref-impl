@@ -330,6 +330,254 @@ class RevocationEntry:
         )
 
 
+# ─── Delegation ────────────────────────────────────────────────────
+
+class Delegation:
+    """A signed delegation token: principal grants scoped authority to delegate.
+
+    Supports:
+    - Time-bounded access (expires_at)
+    - Scope constraints (list of allowed task types)
+    - Sub-delegation depth limits (max_depth)
+    - Chained delegations (parent_id links to granting delegation)
+
+    NIST Focus Area: "Facilitating access delegation and ensuring auditability"
+    """
+
+    def __init__(self, principal: str, delegate: str, scopes: list[str],
+                 expires_at: Optional[float] = None, max_depth: int = 0,
+                 parent_id: Optional[str] = None, depth: int = 0,
+                 timestamp: Optional[float] = None,
+                 signature: Optional[str] = None,
+                 principal_pubkey: Optional[str] = None):
+        self.principal = principal        # Who grants authority
+        self.delegate = delegate          # Who receives authority
+        self.scopes = sorted(scopes)      # Allowed task types
+        self.expires_at = expires_at      # Unix timestamp, None = no expiry
+        self.max_depth = max_depth        # How many sub-delegations allowed (0 = none)
+        self.parent_id = parent_id        # If sub-delegated, links to parent
+        self.depth = depth                # Current depth in delegation chain
+        self.timestamp = timestamp or time.time()
+        self.signature = signature
+        self.principal_pubkey = principal_pubkey
+
+    @property
+    def delegation_id(self) -> str:
+        return hashlib.sha256(self.payload()).hexdigest()[:16]
+
+    def payload(self) -> bytes:
+        data = {
+            "action": "delegate",
+            "principal": self.principal,
+            "delegate": self.delegate,
+            "scopes": self.scopes,
+            "expires_at": self.expires_at,
+            "max_depth": self.max_depth,
+            "parent_id": self.parent_id,
+            "depth": self.depth,
+            "timestamp": self.timestamp,
+        }
+        return json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
+
+    def sign(self, identity: AgentIdentity) -> "Delegation":
+        assert identity.agent_id == self.principal, \
+            f"Signer {identity.agent_id} != principal {self.principal}"
+        self.signature = identity.sign(self.payload()).hex()
+        self.principal_pubkey = identity.public_key_hex
+        return self
+
+    def verify(self) -> bool:
+        if not self.signature or not self.principal_pubkey:
+            return False
+        try:
+            vk = VerifyKey(bytes.fromhex(self.principal_pubkey))
+            vk.verify(self.payload(), bytes.fromhex(self.signature))
+            return True
+        except (BadSignatureError, Exception):
+            return False
+
+    def is_expired(self, now: Optional[float] = None) -> bool:
+        if self.expires_at is None:
+            return False
+        return (now or time.time()) > self.expires_at
+
+    def can_sub_delegate(self) -> bool:
+        return self.depth < self.max_depth
+
+    def sub_delegate(self, new_delegate: str, scopes: list[str],
+                     signer: AgentIdentity, expires_at: Optional[float] = None,
+                     max_depth: Optional[int] = None) -> "Delegation":
+        """Create a sub-delegation from this delegation.
+
+        Constraints enforced:
+        - Cannot exceed parent max_depth
+        - Scopes must be subset of parent scopes
+        - Expiry cannot exceed parent expiry
+        - Signer must be the delegate of this delegation
+        """
+        if not self.can_sub_delegate():
+            raise ValueError("Delegation depth limit reached")
+        if signer.agent_id != self.delegate:
+            raise ValueError(f"Only delegate {self.delegate} can sub-delegate")
+
+        # Scopes must be subset
+        invalid = set(scopes) - set(self.scopes)
+        if invalid:
+            raise ValueError(f"Scopes {invalid} not in parent delegation")
+
+        # Expiry cannot exceed parent
+        if self.expires_at is not None:
+            if expires_at is None or expires_at > self.expires_at:
+                expires_at = self.expires_at
+
+        # Sub-delegation depth
+        child_max = min(max_depth if max_depth is not None else self.max_depth - 1,
+                        self.max_depth - self.depth - 1)
+
+        child = Delegation(
+            principal=self.delegate,
+            delegate=new_delegate,
+            scopes=scopes,
+            expires_at=expires_at,
+            max_depth=child_max,
+            parent_id=self.delegation_id,
+            depth=self.depth + 1,
+            )
+        return child.sign(signer)
+
+    def to_dict(self) -> dict:
+        return {
+            "delegation_id": self.delegation_id,
+            "principal": self.principal,
+            "delegate": self.delegate,
+            "scopes": self.scopes,
+            "expires_at": self.expires_at,
+            "max_depth": self.max_depth,
+            "parent_id": self.parent_id,
+            "depth": self.depth,
+            "timestamp": self.timestamp,
+            "signature": self.signature,
+            "principal_pubkey": self.principal_pubkey,
+        }
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "Delegation":
+        return cls(
+            principal=data["principal"],
+            delegate=data["delegate"],
+            scopes=data["scopes"],
+            expires_at=data.get("expires_at"),
+            max_depth=data.get("max_depth", 0),
+            parent_id=data.get("parent_id"),
+            depth=data.get("depth", 0),
+            timestamp=data.get("timestamp"),
+            signature=data.get("signature"),
+            principal_pubkey=data.get("principal_pubkey"),
+        )
+
+    def __repr__(self):
+        status = "✅" if self.verify() else "❌"
+        exp = f" exp:{self.expires_at}" if self.expires_at else ""
+        return f"Delegation({status} {self.principal} → {self.delegate} [{','.join(self.scopes)}]{exp})"
+
+
+class DelegationRegistry:
+    """Manages delegation chains with validation.
+
+    Verifies full chain integrity: every delegation in the chain must be
+    valid, not expired, and scopes must narrow (never widen).
+    """
+
+    def __init__(self, revocation_registry: Optional["RevocationRegistry"] = None):
+        self._delegations: dict[str, Delegation] = {}  # id → delegation
+        self._by_delegate: dict[str, list[Delegation]] = {}
+        self._by_principal: dict[str, list[Delegation]] = {}
+        self.revocations = revocation_registry
+
+    def add(self, delegation: Delegation) -> bool:
+        """Add delegation if valid signature. Returns True if added."""
+        if not delegation.verify():
+            return False
+        if self.revocations and self.revocations.is_revoked(delegation.delegation_id):
+            return False
+        self._delegations[delegation.delegation_id] = delegation
+        self._by_delegate.setdefault(delegation.delegate, []).append(delegation)
+        self._by_principal.setdefault(delegation.principal, []).append(delegation)
+        return True
+
+    def get(self, delegation_id: str) -> Optional[Delegation]:
+        return self._delegations.get(delegation_id)
+
+    def delegations_for(self, agent_id: str) -> list[Delegation]:
+        """All active (non-expired, non-revoked) delegations for an agent."""
+        now = time.time()
+        result = []
+        for d in self._by_delegate.get(agent_id, []):
+            if d.is_expired(now):
+                continue
+            if self.revocations and self.revocations.is_revoked(d.delegation_id):
+                continue
+            result.append(d)
+        return result
+
+    def is_authorized(self, agent_id: str, scope: str, now: Optional[float] = None) -> bool:
+        """Check if agent has active delegation for a given scope."""
+        now = now or time.time()
+        for d in self._by_delegate.get(agent_id, []):
+            if d.is_expired(now):
+                continue
+            if self.revocations and self.revocations.is_revoked(d.delegation_id):
+                continue
+            if scope in d.scopes:
+                return True
+        return False
+
+    def verify_chain(self, delegation_id: str, now: Optional[float] = None) -> tuple[bool, str]:
+        """Verify full delegation chain from leaf to root.
+
+        Returns (valid, reason).
+        """
+        now = now or time.time()
+        visited = set()
+        current_id = delegation_id
+
+        while current_id:
+            if current_id in visited:
+                return False, "Circular delegation chain"
+            visited.add(current_id)
+
+            d = self._delegations.get(current_id)
+            if d is None:
+                return False, f"Missing delegation {current_id}"
+            if not d.verify():
+                return False, f"Invalid signature on {current_id}"
+            if d.is_expired(now):
+                return False, f"Expired delegation {current_id}"
+            if self.revocations and self.revocations.is_revoked(current_id):
+                return False, f"Revoked delegation {current_id}"
+
+            current_id = d.parent_id
+
+        return True, "Chain valid"
+
+    def save(self, filepath: str):
+        data = [d.to_dict() for d in self._delegations.values()]
+        with open(filepath, "w") as f:
+            json.dump(data, f, indent=2)
+
+    @classmethod
+    def load(cls, filepath: str) -> "DelegationRegistry":
+        registry = cls()
+        with open(filepath) as f:
+            data = json.load(f)
+        for item in data:
+            d = Delegation.from_dict(item)
+            registry._delegations[d.delegation_id] = d
+            registry._by_delegate.setdefault(d.delegate, []).append(d)
+            registry._by_principal.setdefault(d.principal, []).append(d)
+        return registry
+
+
 class RevocationRegistry:
     """Registry for revoked agents and attestations.
 
