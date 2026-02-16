@@ -24,6 +24,87 @@ app = FastAPI(
     version="0.1.0-sandbox",
 )
 
+from fastapi.responses import HTMLResponse
+
+LANDING_HTML = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>isnad — Agent Trust Protocol</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:system-ui,-apple-system,sans-serif;background:#0a0a0a;color:#e0e0e0;min-height:100vh;display:flex;flex-direction:column;align-items:center}
+.hero{max-width:800px;margin:60px auto 0;padding:0 24px;text-align:center}
+h1{font-size:2.8rem;background:linear-gradient(135deg,#60a5fa,#a78bfa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;margin-bottom:12px}
+.sub{font-size:1.2rem;color:#999;margin-bottom:40px}
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:16px;width:100%;max-width:800px;margin:0 auto 40px;padding:0 24px}
+.card{background:#161616;border:1px solid #2a2a2a;border-radius:12px;padding:20px;text-align:left;transition:border-color .2s}
+.card:hover{border-color:#60a5fa}
+.card h3{color:#60a5fa;margin-bottom:8px;font-size:1rem}
+.card p{color:#888;font-size:.9rem;line-height:1.5}
+.try{max-width:800px;width:100%;padding:0 24px;margin-bottom:40px}
+.try h2{font-size:1.4rem;margin-bottom:16px;color:#a78bfa}
+pre{background:#161616;border:1px solid #2a2a2a;border-radius:8px;padding:16px;overflow-x:auto;font-size:.85rem;color:#60a5fa;line-height:1.6}
+.btn{display:inline-block;margin-top:20px;padding:10px 24px;background:#60a5fa;color:#0a0a0a;border-radius:8px;text-decoration:none;font-weight:600;transition:background .2s}
+.btn:hover{background:#a78bfa}
+.stats{display:flex;gap:32px;justify-content:center;margin:32px 0;flex-wrap:wrap}
+.stat{text-align:center}
+.stat .n{font-size:2rem;font-weight:700;color:#60a5fa}
+.stat .l{font-size:.85rem;color:#888}
+footer{margin-top:auto;padding:24px;color:#555;font-size:.8rem}
+</style>
+</head>
+<body>
+<div class="hero">
+<h1>isnad</h1>
+<p class="sub">Cryptographic trust chains for AI agents.<br>Verify identity. Attest behavior. Score trust.</p>
+<div class="stats">
+<div class="stat"><div class="n">117</div><div class="l">Tests Passing</div></div>
+<div class="stat"><div class="n">6</div><div class="l">MCP Tools</div></div>
+<div class="stat"><div class="n">Ed25519</div><div class="l">Crypto</div></div>
+<div class="stat"><div class="n">REST + CLI</div><div class="l">Interfaces</div></div>
+</div>
+</div>
+
+<div class="cards">
+<div class="card"><h3>🔐 Agent Identity</h3><p>Ed25519 keypairs in JWK format. Each agent gets a cryptographically verifiable identity.</p></div>
+<div class="card"><h3>📜 Attestations</h3><p>Signed claims about agent behavior. Immutable, timestamped, verifiable by anyone.</p></div>
+<div class="card"><h3>🔗 Trust Chains</h3><p>Multi-hop trust verification. If A trusts B and B trusts C — verify the entire chain.</p></div>
+<div class="card"><h3>📊 Trust Scoring</h3><p>Dynamic scores based on attestation history, recency, and cross-agent verification.</p></div>
+<div class="card"><h3>🛠️ MCP Server</h3><p>6 tools for Claude, GPT, and any MCP-compatible agent to verify trust natively.</p></div>
+<div class="card"><h3>🏢 Enterprise Ready</h3><p>Batch operations, audit trails, compliance reports, webhook notifications.</p></div>
+</div>
+
+<div class="try">
+<h2>Try it now</h2>
+<pre>
+# Generate agent keypair
+curl -X POST /sandbox/keys/generate \\
+  -H "Content-Type: application/json" \\
+  -d '{"agent_id": "my-agent"}'
+
+# Create attestation
+curl -X POST /sandbox/attestations/create \\
+  -H "Content-Type: application/json" \\
+  -d '{"issuer_id": "my-agent", "subject_id": "other-agent", "claim": "verified_output", "confidence": 0.95}'
+
+# Check trust score
+curl /sandbox/trust/score?agent_id=other-agent
+</pre>
+<a href="/docs" class="btn">Interactive API Docs →</a>
+<a href="https://github.com/Danieliushka/isnad-ref-impl" class="btn" style="margin-left:8px;background:#2a2a2a;color:#e0e0e0">GitHub →</a>
+</div>
+
+<footer>isnad Agent Trust Protocol — CC0 License — Built by <a href="https://clawk.ai/gendolf" style="color:#60a5fa;text-decoration:none">@gendolf</a></footer>
+</body>
+</html>"""
+
+
+@app.get("/", response_class=HTMLResponse)
+async def landing():
+    """Landing page with project overview and quick-start examples."""
+    return LANDING_HTML
+
 # --- In-memory stores ---
 _identities: dict[str, AgentIdentity] = {}  # agent_id -> identity
 _jwk_map: dict[str, dict] = {}  # agent_id -> JWK keypair (public + private)
