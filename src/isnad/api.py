@@ -13,6 +13,7 @@ from pydantic import BaseModel
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
 from isnad.core import TrustChain, Attestation, AgentIdentity, RevocationEntry, RevocationRegistry
+from isnad.delegation import Delegation, DelegationRegistry
 
 app = FastAPI(
     title="isnad API",
@@ -24,6 +25,7 @@ app = FastAPI(
 identities: dict[str, AgentIdentity] = {}
 revocation_registry = RevocationRegistry()
 trust_chain = TrustChain(revocation_registry=revocation_registry)
+delegation_registry = DelegationRegistry(revocation_registry=revocation_registry)
 
 
 # --- Models ---
@@ -219,6 +221,80 @@ def atlas_gate(req: AtlasScoreRequest):
     with AtlasIntegration(trust_chain) as atlas:
         result = atlas.trust_gate(req.agent_id, threshold=threshold)
         return result
+
+
+# --- Delegation Models ---
+
+class DelegationRequest(BaseModel):
+    delegator_id: str  # agent_id of delegator (must have registered identity)
+    delegate_pubkey: str  # public key hex of delegate
+    scope: str  # e.g., "attest:code-review"
+    expires_in_hours: float = 24.0
+    max_depth: int = 1
+
+class SubDelegationRequest(BaseModel):
+    parent_hash: str
+    delegator_id: str  # agent doing the sub-delegation
+    delegate_pubkey: str
+    scope: Optional[str] = None
+    expires_in_hours: Optional[float] = None
+
+
+# --- Delegation Endpoints ---
+
+@app.post("/delegations")
+def create_delegation(req: DelegationRequest):
+    """Create a new delegation of authority."""
+    if req.delegator_id not in identities:
+        raise HTTPException(status_code=404, detail=f"Delegator {req.delegator_id} not found")
+    
+    delegator = identities[req.delegator_id]
+    from datetime import datetime, timezone, timedelta
+    expires_at = (datetime.now(timezone.utc) + timedelta(hours=req.expires_in_hours)).isoformat()
+    
+    d = Delegation(
+        delegator="", delegate=req.delegate_pubkey,
+        scope=req.scope, expires_at=expires_at, max_depth=req.max_depth
+    )
+    d = delegation_registry.add(d, delegator.signing_key)
+    return {"delegation_hash": d.content_hash, "delegation": d.to_dict()}
+
+@app.post("/delegations/sub-delegate")
+def sub_delegate(req: SubDelegationRequest):
+    """Create a sub-delegation from an existing delegation."""
+    if req.delegator_id not in identities:
+        raise HTTPException(status_code=404, detail=f"Delegator {req.delegator_id} not found")
+    
+    delegator = identities[req.delegator_id]
+    from datetime import datetime, timezone, timedelta
+    expires_at = None
+    if req.expires_in_hours:
+        expires_at = (datetime.now(timezone.utc) + timedelta(hours=req.expires_in_hours)).isoformat()
+    
+    try:
+        d = delegation_registry.sub_delegate(
+            req.parent_hash, req.delegate_pubkey,
+            delegator.signing_key, scope=req.scope, expires_at=expires_at
+        )
+        return {"delegation_hash": d.content_hash, "delegation": d.to_dict()}
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+@app.get("/delegations/verify/{delegation_hash}")
+def verify_delegation_chain(delegation_hash: str):
+    """Verify an entire delegation chain."""
+    valid, message = delegation_registry.verify_chain(delegation_hash)
+    return {"valid": valid, "message": message}
+
+@app.get("/delegations/for/{delegate_pubkey}")
+def get_delegations_for(delegate_pubkey: str, scope: Optional[str] = None):
+    """Get all active delegations for a delegate."""
+    delegations = delegation_registry.get_delegations_for(delegate_pubkey, scope=scope)
+    return {
+        "delegate": delegate_pubkey,
+        "count": len(delegations),
+        "delegations": [d.to_dict() for d in delegations]
+    }
 
 
 if __name__ == "__main__":
