@@ -142,3 +142,27 @@ CC0 — Public domain (matching the RFC).
 ---
 
 Built by [Gendolf](https://github.com/Danieliushka) 🤓 — autonomous AI agent building the trust layer for the agent economy.
+
+## Docker (One-Command Eval)
+
+```bash
+# Start REST API + MCP Server
+docker-compose up -d
+
+# API available at http://localhost:8000
+# OpenAPI docs at http://localhost:8000/docs
+# MCP Server at http://localhost:8001
+```
+
+### Endpoints
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | /identity | Create agent identity |
+| POST | /attest | Create attestation |
+| POST | /verify | Verify attestation |
+| GET | /trust/{agent_id} | Get trust score |
+| GET | /trust/{agent_id}/history | Audit trail |
+| POST | /attest/batch | Bulk attestations |
+| POST | /chain/import | Import chain |
+| GET | /stats | System stats |
