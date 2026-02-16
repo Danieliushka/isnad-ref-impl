@@ -1,5 +1,9 @@
 # isnad — Cryptographic Trust Chains for AI Agents
 
+[![CI](https://github.com/gendolf-agent/isnad-ref-impl/actions/workflows/ci.yml/badge.svg)](https://github.com/gendolf-agent/isnad-ref-impl/actions/workflows/ci.yml)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
+
 **The missing trust layer for agent-to-agent communication.**
 
 When AI agents interact, how do you know who did what, and whether to trust them? Isnad solves this with cryptographic provenance chains — every action is signed, every claim is verifiable, every trust score is computed from evidence.
