@@ -6,6 +6,7 @@ from isnad.core import (
     RevocationEntry, RevocationRegistry,
 )
 from isnad.client import IsnadClient, IsnadError
+from isnad.discovery import AgentProfile, DiscoveryRegistry, create_profile
 from isnad.trustscore import IsnadBridge, TrustScorer
 
 __all__ = [
@@ -18,6 +19,9 @@ __all__ = [
     "RevocationRegistry",
     "IsnadClient",
     "IsnadError",
+    "AgentProfile",
+    "DiscoveryRegistry",
+    "create_profile",
     "IsnadBridge",
     "TrustScorer",
 ]

@@ -1,4 +1,4 @@
-version: '3.8'
+version: "3.8"
 
 services:
   isnad-api:
@@ -6,12 +6,21 @@ services:
     ports:
       - "8000:8000"
     environment:
-      - ISNAD_LOG_LEVEL=info
-    restart: unless-stopped
+      - ISNAD_HOST=0.0.0.0
+      - ISNAD_PORT=8000
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
 
-  isnad-mcp:
+  isnad-demo:
     build: .
-    ports:
-      - "3000:3000"
-    command: ["python", "mcp_server.py"]
-    restart: unless-stopped
+    depends_on:
+      isnad-api:
+        condition: service_healthy
+    environment:
+      - ISNAD_API_URL=http://isnad-api:8000
+    command: python examples/demo_scenario.py
+    profiles:
+      - demo
