@@ -384,6 +384,158 @@ def verify_rotation(req: VerifyRotationRequest):
     }
 
 
+# --- Trust Policy ---
+
+from isnad.policy import (
+    TrustRequirement, PolicyRule, PolicyAction, TrustPolicy,
+    EvaluationContext, PolicyDecision,
+    strict_commerce_policy, open_discovery_policy, scoped_delegation_policy,
+)
+
+
+class TrustRequirementModel(BaseModel):
+    min_trust_score: Optional[float] = None
+    min_endorsements: Optional[int] = None
+    max_chain_length: Optional[int] = None
+    required_scopes: Optional[list[str]] = None
+    required_issuer_ids: Optional[list[str]] = None
+    max_age_seconds: Optional[int] = None
+
+
+class PolicyRuleModel(BaseModel):
+    name: str
+    requirement: TrustRequirementModel
+    on_fail: str = "deny"
+    description: str = ""
+    priority: int = 0
+
+
+class PolicyCreateModel(BaseModel):
+    name: str
+    rules: list[PolicyRuleModel]
+    default_action: str = "deny"
+
+
+class PolicyEvaluateModel(BaseModel):
+    agent_id: str
+    trust_score: float = 0.0
+    endorsement_count: int = 0
+    chain_length: int = 1
+    scopes: list[str] = []
+    issuer_ids: list[str] = []
+    chain_age_seconds: int = 0
+
+
+# In-memory policy store
+policies: dict[str, TrustPolicy] = {}
+
+# Pre-load presets
+for _preset_fn in [strict_commerce_policy, open_discovery_policy, lambda: scoped_delegation_policy(["trade", "delegate"])]:
+    _preset = _preset_fn()
+    policies[_preset.name] = _preset
+
+
+@app.get("/policies", tags=["policy"])
+async def list_policies():
+    """List all registered trust policies."""
+    return {
+        "policies": [
+            {"name": p.name, "rules": len(p.rules), "default_action": p.default_action.value}
+            for p in policies.values()
+        ]
+    }
+
+
+@app.get("/policies/{name}", tags=["policy"])
+async def get_policy(name: str):
+    """Get a specific trust policy by name."""
+    if name not in policies:
+        raise HTTPException(404, f"Policy '{name}' not found")
+    p = policies[name]
+    return p.to_dict()
+
+
+@app.post("/policies", tags=["policy"], status_code=201)
+async def create_policy(body: PolicyCreateModel):
+    """Create a custom trust policy."""
+    if body.name in policies:
+        raise HTTPException(409, f"Policy '{body.name}' already exists")
+    policy = TrustPolicy(name=body.name, default_action=PolicyAction(body.default_action))
+    for r in body.rules:
+        req = TrustRequirement(**r.requirement.model_dump(exclude_none=True))
+        rule = PolicyRule(
+            name=r.name,
+            requirement=req,
+            on_fail=PolicyAction(r.on_fail),
+            description=r.description,
+        )
+        rule.priority = r.priority
+        policy.add_rule(rule)
+    policies[body.name] = policy
+    return {"created": body.name, "rules": len(policy.rules)}
+
+
+@app.post("/policies/{name}/evaluate", tags=["policy"])
+async def evaluate_policy(name: str, body: PolicyEvaluateModel):
+    """Evaluate an agent against a trust policy."""
+    if name not in policies:
+        raise HTTPException(404, f"Policy '{name}' not found")
+    policy = policies[name]
+    ctx = EvaluationContext(
+        agent_id=body.agent_id,
+        trust_score=body.trust_score,
+        endorsement_count=body.endorsement_count,
+        chain_length=body.chain_length,
+        scopes=body.scopes,
+        issuer_ids=body.issuer_ids,
+        chain_age_seconds=body.chain_age_seconds,
+    )
+    result = policy.evaluate(ctx)
+    return {
+        "allowed": result.allowed(),
+        "action": result.action.value,
+        "matched_rule": result.rule_name,
+        "matched": result.matched,
+        "reason": result.reason,
+    }
+
+
+@app.post("/policies/{name}/evaluate/batch", tags=["policy"])
+async def evaluate_policy_batch(name: str, agents: list[PolicyEvaluateModel]):
+    """Evaluate multiple agents against a trust policy."""
+    if name not in policies:
+        raise HTTPException(404, f"Policy '{name}' not found")
+    policy = policies[name]
+    results = []
+    for agent in agents:
+        ctx = EvaluationContext(
+            agent_id=agent.agent_id,
+            trust_score=agent.trust_score,
+            endorsement_count=agent.endorsement_count,
+            chain_length=agent.chain_length,
+            scopes=agent.scopes,
+            issuer_ids=agent.issuer_ids,
+            chain_age_seconds=agent.chain_age_seconds,
+        )
+        r = policy.evaluate(ctx)
+        results.append({
+            "agent_id": agent.agent_id,
+            "allowed": r.allowed(),
+            "action": r.action.value,
+            "matched_rule": r.rule_name,
+        })
+    return {"results": results}
+
+
+@app.delete("/policies/{name}", tags=["policy"])
+async def delete_policy(name: str):
+    """Delete a trust policy."""
+    if name not in policies:
+        raise HTTPException(404, f"Policy '{name}' not found")
+    del policies[name]
+    return {"deleted": name}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8420)
