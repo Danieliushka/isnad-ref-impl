@@ -70,6 +70,102 @@ class AgentIdentity:
             json.dump(self.export_keys(), f, indent=2)
         os.chmod(filepath, 0o600)
 
+    def rotate(self) -> tuple["AgentIdentity", "KeyRotation"]:
+        """Generate new keypair and a signed rotation proof linking old → new.
+
+        Returns (new_identity, rotation_record).
+        The rotation is signed by the OLD key to prove continuity.
+        """
+        new_identity = AgentIdentity()
+        rotation = KeyRotation.create(old_identity=self, new_identity=new_identity)
+        return new_identity, rotation
+
+
+class KeyRotation:
+    """Signed proof that an agent rotated from one key to another.
+
+    The old key signs a message binding (old_pubkey, new_pubkey, timestamp),
+    proving the holder of the old key authorised the transition.
+    Enterprise compliance requires periodic key rotation; this record
+    preserves chain-of-custody across rotations.
+    """
+
+    def __init__(self, old_pubkey: str, new_pubkey: str,
+                 timestamp: str, signature: str,
+                 old_agent_id: str = "", new_agent_id: str = ""):
+        self.old_pubkey = old_pubkey
+        self.new_pubkey = new_pubkey
+        self.timestamp = timestamp
+        self.signature = signature
+        self.old_agent_id = old_agent_id
+        self.new_agent_id = new_agent_id
+
+    # ── factory ──
+
+    @classmethod
+    def create(cls, old_identity: AgentIdentity,
+               new_identity: AgentIdentity) -> "KeyRotation":
+        ts = datetime.now(timezone.utc).isoformat()
+        payload = cls._payload(old_identity.public_key_hex,
+                               new_identity.public_key_hex, ts)
+        sig = old_identity.sign(payload)
+        return cls(
+            old_pubkey=old_identity.public_key_hex,
+            new_pubkey=new_identity.public_key_hex,
+            timestamp=ts,
+            signature=sig.hex(),
+            old_agent_id=old_identity.agent_id,
+            new_agent_id=new_identity.agent_id,
+        )
+
+    # ── verification ──
+
+    def verify(self) -> bool:
+        """Verify the rotation was signed by the old key."""
+        try:
+            vk = VerifyKey(bytes.fromhex(self.old_pubkey))
+            payload = self._payload(self.old_pubkey, self.new_pubkey,
+                                    self.timestamp)
+            vk.verify(payload, bytes.fromhex(self.signature))
+            return True
+        except (BadSignatureError, Exception):
+            return False
+
+    # ── serialisation ──
+
+    def to_dict(self) -> dict:
+        return {
+            "type": "key_rotation",
+            "old_pubkey": self.old_pubkey,
+            "new_pubkey": self.new_pubkey,
+            "old_agent_id": self.old_agent_id,
+            "new_agent_id": self.new_agent_id,
+            "timestamp": self.timestamp,
+            "signature": self.signature,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "KeyRotation":
+        return cls(
+            old_pubkey=d["old_pubkey"],
+            new_pubkey=d["new_pubkey"],
+            timestamp=d["timestamp"],
+            signature=d["signature"],
+            old_agent_id=d.get("old_agent_id", ""),
+            new_agent_id=d.get("new_agent_id", ""),
+        )
+
+    # ── internal ──
+
+    @staticmethod
+    def _payload(old_pk: str, new_pk: str, ts: str) -> bytes:
+        return json.dumps({
+            "action": "key_rotation",
+            "old_pubkey": old_pk,
+            "new_pubkey": new_pk,
+            "timestamp": ts,
+        }, sort_keys=True, separators=(",", ":")).encode()
+
 
 # ─── Attestation ───────────────────────────────────────────────────
 

@@ -12,7 +12,8 @@ from pydantic import BaseModel
 
 import sys
 sys.path.insert(0, os.path.dirname(__file__))
-from isnad.core import TrustChain, Attestation, AgentIdentity, RevocationEntry, RevocationRegistry
+from nacl.encoding import HexEncoder
+from isnad.core import TrustChain, Attestation, AgentIdentity, RevocationEntry, RevocationRegistry, KeyRotation
 from isnad.delegation import Delegation, DelegationRegistry
 
 app = FastAPI(
@@ -336,6 +337,50 @@ def get_delegations_for(delegate_pubkey: str, scope: Optional[str] = None):
         "delegate": delegate_pubkey,
         "count": len(delegations),
         "delegations": [d.to_dict() for d in delegations]
+    }
+
+
+# ─── Key Rotation ──────────────────────────────────────────────────
+
+from pydantic import BaseModel as _BaseModel  # noqa: already imported above
+
+
+class RotateKeyRequest(_BaseModel):
+    private_key_hex: str  # current (old) private key
+
+
+class VerifyRotationRequest(_BaseModel):
+    rotation: dict  # KeyRotation.to_dict() output
+
+
+@app.post("/v1/rotate-key")
+def rotate_key(req: RotateKeyRequest):
+    """Generate a new keypair and a signed rotation proof."""
+    try:
+        old_identity = AgentIdentity.from_private_key(req.private_key_hex)
+    except Exception:
+        raise HTTPException(400, "Invalid private key")
+    new_identity, rotation = old_identity.rotate()
+    return {
+        "new_private_key": new_identity.signing_key.encode(encoder=HexEncoder).decode(),
+        "new_public_key": new_identity.public_key_hex,
+        "new_agent_id": new_identity.agent_id,
+        "rotation": rotation.to_dict(),
+    }
+
+
+@app.post("/v1/verify-rotation")
+def verify_rotation(req: VerifyRotationRequest):
+    """Verify a key rotation proof."""
+    try:
+        rotation = KeyRotation.from_dict(req.rotation)
+    except Exception:
+        raise HTTPException(400, "Invalid rotation record")
+    valid = rotation.verify()
+    return {
+        "valid": valid,
+        "old_agent_id": rotation.old_agent_id,
+        "new_agent_id": rotation.new_agent_id,
     }
 
 
