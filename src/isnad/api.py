@@ -122,6 +122,48 @@ def verify_attestation(req: VerifyRequest):
     except Exception as e:
         return {"valid": False, "error": str(e)}
 
+class BatchVerifyItem(BaseModel):
+    subject: str
+    witness: str
+    task: str
+    evidence: str = ""
+    timestamp: str = ""
+    signature: str = ""
+    witness_pubkey: str = ""
+
+class BatchVerifyRequest(BaseModel):
+    attestations: list[BatchVerifyItem]
+
+@app.post("/batch-verify")
+def batch_verify(req: BatchVerifyRequest):
+    """Batch verify multiple attestations in a single request."""
+    results = []
+    valid_count = 0
+    for item in req.attestations:
+        try:
+            att = Attestation(
+                subject=item.subject,
+                witness=item.witness,
+                task=item.task,
+                evidence=item.evidence,
+                timestamp=item.timestamp,
+                signature=item.signature,
+                witness_pubkey=item.witness_pubkey,
+            )
+            is_valid = att.verify()
+            if is_valid:
+                valid_count += 1
+            results.append({"attestation_id": att.attestation_id, "valid": is_valid})
+        except Exception as e:
+            results.append({"valid": False, "error": str(e)})
+    
+    return {
+        "total": len(req.attestations),
+        "valid": valid_count,
+        "invalid": len(req.attestations) - valid_count,
+        "results": results,
+    }
+
 @app.get("/trust-score/{agent_id}")
 def get_trust_score(agent_id: str, scope: Optional[str] = None):
     """Get trust score for an agent based on their attestation history."""
