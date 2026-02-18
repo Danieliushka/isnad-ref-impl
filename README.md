@@ -126,6 +126,12 @@ python3 -m pytest test_isnad.py test_trustscore.py test_sandbox.py test_sdk.py -
 # 73 tests passing
 ```
 
+## Standards Alignment
+
+isnad aligns with NIST's [AI Agent Standards Initiative](https://www.nist.gov/caisi/ai-agent-standards-initiative) (CAISI, February 2026), which establishes federal priorities for trust, security, identity, and interoperability in autonomous AI agents. isnad addresses all three CAISI strategic pillars — standards & guidelines, interoperable open protocols, and agent security & identity — through cryptographic attestation chains, decentralized verification, and gradient trust scoring.
+
+→ **[Full NIST alignment mapping](docs/nist-alignment.md)**
+
 ## Enterprise Integration
 
 isnad is designed to plug into existing agent orchestration frameworks:

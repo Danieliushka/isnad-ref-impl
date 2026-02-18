@@ -1,76 +1,80 @@
-# isnad ↔ NIST Agent Identity & Authorization Alignment
+# isnad ↔ NIST AI Agent Standards Initiative (CAISI) Alignment
 
-*How isnad maps to NIST's "Accelerating the Adoption of Software and AI Agent Identity and Authorization" (Feb 5, 2026)*
+*Mapping isnad's cryptographic trust chains to NIST's AI Agent Standards Initiative priority areas.*
 
-## Overview
+## Background
 
-NIST's NCCoE concept paper proposes a demonstration project for agent identity and authorization in enterprise settings. isnad directly addresses all four focus areas with a cryptographic-first approach.
+On February 18, 2026, NIST's **Center for AI Standards and Innovation (CAISI)** launched the [AI Agent Standards Initiative](https://www.nist.gov/caisi/ai-agent-standards-initiative) — a federal effort to ensure autonomous AI agents are adopted with confidence through industry-led technical standards and open protocols. The initiative focuses on three strategic pillars: **Standards & Guidelines**, **Interoperability & Open Protocols**, and **Security & Identity**.
+
+isnad — a cryptographic trust chain protocol for AI agents — directly addresses each of these pillars. This document maps CAISI's priorities to isnad's existing implementation.
 
 ## Alignment Matrix
 
-| NIST Focus Area | NIST Description | isnad Implementation |
-|----------------|-----------------|---------------------|
-| **Identification** | Distinguish AI agents from humans; manage metadata for action control | `AgentIdentity` with Ed25519 keypairs, `agent_type` metadata, capability declarations |
-| **Authorization** | OAuth 2.0 extensions, policy-based access control | `TrustScore` as authorization signal; attestation-based capability proof; integrates with existing IAM via REST API |
-| **Access Delegation** | Link user identities to AI agents for accountability | Isnad chains trace agent → operator → organization; `delegated_by` field in attestations |
-| **Logging & Transparency** | Audit trails for agent actions | Every action is a signed attestation in an immutable chain; full provenance history queryable via API |
+### Pillar 1: Standards & Guidelines
 
-## Key Differentiators
+> *"NIST hosts technical convenings and conducts gap analyses to produce voluntary guidelines to inform industry-led standardization for AI agents."*
 
-### What isnad adds beyond NIST's scope:
+| CAISI Priority | isnad Implementation |
+|---|---|
+| Voluntary guidelines for agent trust | isnad provides a formal trust model with configurable weight decay, scope filtering, and transitive trust computation — suitable as a baseline for standardization |
+| Gap analysis for agent standards | isnad addresses the "missing trust layer" gap: no existing standard covers cryptographic provenance chains for agent-to-agent interactions |
+| International standards leadership | isnad's protocol-level design is framework-agnostic and platform-neutral, enabling adoption across jurisdictions |
 
-1. **Transitive Trust** — Trust flows through chains, not just point-to-point. If A trusts B and B attests to C, the chain captures the full provenance.
+### Pillar 2: Interoperability & Open Protocols
 
-2. **Attestation Freshness** — Instead of time-based decay that penalizes necessary downtime, isnad uses attestation freshness: trust degrades when evidence stops, not when time passes.
+> *"NIST engages with the AI ecosystem to identify and reduce barriers to interoperable agent protocols."*
 
-3. **Decentralized Verification** — No central authority. Verification travels with the data. Any party can validate a chain independently.
+| CAISI Priority | isnad Implementation |
+|---|---|
+| Interoperable agent protocols | isnad attestation chains are JSON-serializable, transport-agnostic, and verifiable by any party without a central authority |
+| Open source ecosystem | isnad is released under CC0 (public domain), with a full reference implementation, SDK, CLI, REST API, and MCP server |
+| Cross-platform agent communication | Trust scores and attestation chains are portable across frameworks (LangChain, CrewAI, OpenClaw, or any custom orchestration) |
+| Reducing barriers to adoption | Docker one-command deployment, Python SDK, and sandbox API lower the integration barrier for enterprises |
 
-4. **Cross-Platform Portability** — Protocol-level trust, not platform-level. An agent's trust reputation works across OpenClaw, LangChain, CrewAI, or any framework.
+### Pillar 3: Security & Identity
 
-## NIST Comment Submission Plan
+> *"NIST conducts fundamental research into agent authentication and identity infrastructure to enable secure human-agent and multi-agent interactions."*
 
-**Deadline:** April 2, 2026
+| CAISI Priority | isnad Implementation |
+|---|---|
+| Agent authentication | Ed25519 keypair-based identity — each agent has a cryptographically unforgeable identity |
+| Identity infrastructure | `AgentIdentity` supports key generation, metadata binding, and capability declarations; no central registry required |
+| Secure human-agent interactions | Attestation chains trace agent → operator → organization, preserving accountability through delegation |
+| Secure multi-agent interactions | Every agent action is a signed attestation in an immutable chain; any verifier can independently validate the full provenance |
+| Security evaluations | isnad's trust model includes weight decay per hop (30%), same-witness penalties (50%), and scope isolation — designed to resist Sybil attacks and trust inflation |
 
-### Proposed Comments:
+## Alignment with Related NIST Activities
 
-1. **Chain-of-custody for agent actions** — NIST's logging focus should extend to cryptographic provenance chains, not just audit logs. Signed attestation chains provide tamper-evident history.
+### NCCoE Identity & Authorization Concept Paper
 
-2. **Non-human identity standards** — Agent identities should be first-class citizens in identity frameworks, with their own key management lifecycle (creation, rotation, revocation).
+The [NCCoE concept paper](https://www.nccoe.nist.gov/projects/software-and-ai-agent-identity-and-authorization) (Feb 5, 2026) proposes a demonstration project for agent identity and authorization in enterprise settings. isnad maps to all four of its focus areas:
 
-3. **Interoperability** — The demonstration should include cross-platform scenarios where agents from different frameworks need to verify each other's identity and trust level.
+| NCCoE Focus Area | isnad Coverage |
+|---|---|
+| **Identification** | `AgentIdentity` with Ed25519 keypairs, `agent_type` metadata, capability declarations |
+| **Authorization** | `TrustScore` as authorization signal; attestation-based capability proof; integrates with existing IAM via REST API |
+| **Access Delegation** | Isnad chains trace delegation paths; `delegated_by` field in attestations links agents to human principals |
+| **Logging & Transparency** | Every action is a signed attestation in an immutable chain; full provenance history queryable via API |
 
-4. **Trust scoring** — Binary access control (allow/deny) is insufficient for agentic systems. Gradient trust scores based on verifiable evidence provide more nuanced authorization decisions.
+### RFI on AI Agent Security (Deadline: March 9, 2026)
 
-## Integration with Enterprise IAM
+CAISI's [Request for Information](https://www.nist.gov/news-events/news/2026/01/caisi-issues-request-information-about-securing-ai-agent-systems) seeks ecosystem perspectives on agent security threats and mitigations. isnad's contributions to this space include:
 
-```
-┌─────────────────────────────────────────┐
-│           Enterprise IAM                 │
-│  (Okta / Entra ID / CyberArk)          │
-│                                          │
-│  Human Identity ──delegates──► Agent ID  │
-│       │                          │       │
-│       └──── isnad attestation ───┘       │
-│              chain links both            │
-└──────────────────────────────────────────┘
-                    │
-                    ▼
-┌──────────────────────────────────────────┐
-│         isnad Trust Layer                │
-│                                          │
-│  Agent A ──attests──► Agent B            │
-│     │                    │               │
-│     └── TrustScore ──────┘               │
-│     └── Provenance Chain ────────────►   │
-│                                          │
-│  Any verifier can validate independently │
-└──────────────────────────────────────────┘
-```
+- **Tamper-evident provenance**: Signed attestation chains provide cryptographic proof of agent actions, mitigating repudiation threats
+- **Decentralized verification**: No single point of trust failure; verification travels with the data
+- **Gradient trust scoring**: Moving beyond binary allow/deny to evidence-based, context-sensitive authorization
+
+## What isnad Adds Beyond Current NIST Scope
+
+1. **Transitive Trust Computation** — Trust flows through attestation chains with configurable decay, not just point-to-point credentials
+2. **Scope Isolation** — Trust in "code-review" is independent from trust in "financial-trading," preventing scope creep
+3. **Attestation Freshness** — Trust degrades when evidence stops accumulating, incentivizing ongoing good behavior
+4. **Decentralized by Design** — No central authority, registry, or certificate chain required; any party can verify independently
 
 ## References
 
-- NIST Concept Paper: "Accelerating the Adoption of Software and AI Agent Identity and Authorization" (Feb 5, 2026)
-- isnad RFC: [github.com/gendolf-agent/isnad-ref-impl](https://github.com/gendolf-agent/isnad-ref-impl)
-- CIO: "Trust in the age of agentic AI systems" (Feb 2026)
-- Okta: 23% of IT professionals reported agent credential exposure
-- WEF: Only 10% of organizations have non-human identity strategies
+- NIST CAISI, "AI Agent Standards Initiative," February 17, 2026. https://www.nist.gov/caisi/ai-agent-standards-initiative
+- NIST CAISI, "Announcing the AI Agent Standards Initiative for Interoperable and Secure Innovation," February 18, 2026. https://www.nist.gov/news-events/news/2026/02/announcing-ai-agent-standards-initiative-interoperable-and-secure
+- NCCoE, "Accelerating the Adoption of Software and AI Agent Identity and Authorization," February 5, 2026. https://www.nccoe.nist.gov/projects/software-and-ai-agent-identity-and-authorization
+- NIST CAISI, "Request for Information on AI Agent Security," January 2026. https://www.nist.gov/news-events/news/2026/01/caisi-issues-request-information-about-securing-ai-agent-systems
+- isnad Reference Implementation: https://github.com/gendolf-agent/isnad-ref-impl
