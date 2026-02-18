@@ -12,6 +12,10 @@ from isnad.commerce import ServiceListing, TradeRecord, DisputeRecord, CommerceR
 from isnad.trustscore import IsnadBridge, TrustScorer
 from isnad.rate_limiter import TrustRateLimiter, RateTier, RateCheckResult
 from isnad.batch import verify_batch, verify_chain_batch, BatchReport, VerificationResult
+from isnad.epochs import (
+    EpochPolicy, EpochManager,
+    PAYMENT_EPOCH, REPUTATION_EPOCH, IDENTITY_EPOCH,
+)
 from isnad.policy import (
     TrustPolicy, TrustRequirement, PolicyRule, PolicyAction,
     PolicyDecision, EvaluationContext,
@@ -49,6 +53,11 @@ __all__ = [
     "strict_commerce_policy",
     "open_discovery_policy",
     "scoped_delegation_policy",
+    "EpochPolicy",
+    "EpochManager",
+    "PAYMENT_EPOCH",
+    "REPUTATION_EPOCH",
+    "IDENTITY_EPOCH",
     "TrustRateLimiter",
     "RateTier",
     "RateCheckResult",
