@@ -21,6 +21,9 @@ from isnad.epochs import (
 )
 # Backwards compatibility
 EpochManager = EpochRegistry
+from isnad.revocation import (
+    RevocationReason, RevocationRecord, RevocationList, RevocationCheck,
+)
 from isnad.policy import (
     TrustPolicy, TrustRequirement, PolicyRule, PolicyAction,
     PolicyDecision, EvaluationContext,
@@ -72,6 +75,10 @@ __all__ = [
     "TrustRateLimiter",
     "RateTier",
     "RateCheckResult",
+    "RevocationReason",
+    "RevocationRecord",
+    "RevocationList",
+    "RevocationCheck",
     "render_chain",
     "render_graph",
     "render_agent_summary",
