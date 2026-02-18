@@ -13,9 +13,13 @@ from isnad.trustscore import IsnadBridge, TrustScorer
 from isnad.rate_limiter import TrustRateLimiter, RateTier, RateCheckResult
 from isnad.batch import verify_batch, verify_chain_batch, BatchReport, VerificationResult
 from isnad.epochs import (
-    EpochPolicy, EpochManager,
-    PAYMENT_EPOCH, REPUTATION_EPOCH, IDENTITY_EPOCH,
+    EpochPolicy, EpochRegistry,
+    DecayCurve, RenewalCondition, EpochState,
+    Epoch, CrossDomainBridge, BridgeResult,
+    AdaptiveEpochCalculator,
 )
+# Backwards compatibility
+EpochManager = EpochRegistry
 from isnad.policy import (
     TrustPolicy, TrustRequirement, PolicyRule, PolicyAction,
     PolicyDecision, EvaluationContext,
@@ -55,9 +59,14 @@ __all__ = [
     "scoped_delegation_policy",
     "EpochPolicy",
     "EpochManager",
-    "PAYMENT_EPOCH",
-    "REPUTATION_EPOCH",
-    "IDENTITY_EPOCH",
+    "EpochRegistry",
+    "DecayCurve",
+    "RenewalCondition",
+    "EpochState",
+    "Epoch",
+    "CrossDomainBridge",
+    "BridgeResult",
+    "AdaptiveEpochCalculator",
     "TrustRateLimiter",
     "RateTier",
     "RateCheckResult",
