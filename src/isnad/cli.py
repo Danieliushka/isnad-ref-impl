@@ -236,6 +236,90 @@ def cmd_export(client: IsnadClient, args):
     return export
 
 
+def cmd_batch_verify(client: IsnadClient, args):
+    """Batch verify attestations from a JSON file."""
+    with open(args.file, "r") as f:
+        data = json.load(f)
+
+    attestations = data if isinstance(data, list) else data.get("attestations", [data])
+    
+    results = {"total": len(attestations), "valid": 0, "invalid": 0, "errors": []}
+    
+    for i, att in enumerate(attestations):
+        att_id = att.get("id") or att.get("attestation_id")
+        if not att_id:
+            results["errors"].append({"index": i, "error": "missing attestation id"})
+            results["invalid"] += 1
+            continue
+        try:
+            result = client.verify_attestation(att_id)
+            if result.get("valid"):
+                results["valid"] += 1
+            else:
+                results["invalid"] += 1
+                results["errors"].append({"index": i, "id": att_id, "error": "verification failed"})
+        except IsnadError as e:
+            results["invalid"] += 1
+            results["errors"].append({"index": i, "id": att_id, "error": str(e)})
+    
+    print(f"📊 Batch Verification Results:")
+    print(f"   Total:   {results['total']}")
+    print(f"   ✅ Valid:  {results['valid']}")
+    print(f"   ❌ Invalid: {results['invalid']}")
+    
+    if results["errors"] and args.verbose:
+        print(f"\n   Errors:")
+        for err in results["errors"]:
+            print(f"   [{err.get('index')}] {err.get('id', 'N/A')}: {err['error']}")
+    
+    if args.output:
+        with open(args.output, "w") as f:
+            json.dump(results, f, indent=2)
+        print(f"\n📦 Report saved to {args.output}")
+    
+    return results
+
+
+def cmd_import(client: IsnadClient, args):
+    """Import agent trust data from an isnad export file."""
+    with open(args.file, "r") as f:
+        data = json.load(f)
+    
+    version = data.get("version", "unknown")
+    if not version.startswith("isnad/"):
+        print(f"⚠️  Warning: unknown format version '{version}'", file=sys.stderr)
+    
+    agent_id = data.get("agent_id")
+    chain = data.get("chain", {})
+    attestations = chain.get("attestations", [])
+    
+    print(f"📥 Importing trust data for agent {agent_id}")
+    print(f"   Format: {version}")
+    print(f"   Attestations: {len(attestations)}")
+    
+    imported = 0
+    skipped = 0
+    
+    for att in attestations:
+        try:
+            # Re-create attestation in local sandbox
+            client.create_attestation(
+                witness_id=att.get("witness", att.get("witness_id", "")),
+                subject_id=att.get("subject", att.get("subject_id", agent_id)),
+                task=att.get("task", att.get("scope", "imported")),
+                evidence=att.get("evidence", ""),
+            )
+            imported += 1
+        except IsnadError:
+            skipped += 1
+    
+    print(f"\n   ✅ Imported: {imported}")
+    if skipped:
+        print(f"   ⏭️  Skipped:  {skipped}")
+    
+    return {"imported": imported, "skipped": skipped}
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="isnad CLI — Agent Trust Protocol",
@@ -272,6 +356,14 @@ def main():
     p_export.add_argument("agent_id", help="Agent ID")
     p_export.add_argument("-o", "--output", help="Output file (stdout if omitted)")
     
+    p_batch = sub.add_parser("batch-verify", help="Batch verify attestations from JSON file")
+    p_batch.add_argument("file", help="JSON file with attestations")
+    p_batch.add_argument("-o", "--output", help="Save report to JSON file")
+    p_batch.add_argument("-v", "--verbose", action="store_true", help="Show error details")
+    
+    p_import = sub.add_parser("import", help="Import trust data from isnad export file")
+    p_import.add_argument("file", help="isnad export JSON file")
+    
     args = parser.parse_args()
     
     if not args.command:
@@ -289,6 +381,8 @@ def main():
         "demo": cmd_demo,
         "audit": cmd_audit,
         "export": cmd_export,
+        "batch-verify": cmd_batch_verify,
+        "import": cmd_import,
     }
     
     try:

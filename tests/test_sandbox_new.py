@@ -109,3 +109,40 @@ def test_webhook_filtered():
 if __name__ == "__main__":
     import pytest
     pytest.main([__file__, "-v"])
+
+
+def test_main_api_batch_verify():
+    """Test batch verification endpoint on the main API."""
+    from fastapi.testclient import TestClient
+    from isnad.api import app
+    
+    client = TestClient(app)
+    
+    # Create two identities
+    r1 = client.post("/identity", json={})
+    r2 = client.post("/identity", json={})
+    a1 = r1.json()["agent_id"]
+    a2 = r2.json()["agent_id"]
+    
+    # Create attestation
+    att = client.post("/attest", json={
+        "witness_id": a1,
+        "subject_id": a2,
+        "task": "batch-test",
+        "evidence": "test"
+    })
+    assert att.status_code == 200
+    
+    # Batch verify (with one valid structure, one bad)
+    r = client.post("/batch-verify", json={
+        "attestations": [
+            {"subject": a2, "witness": a1, "task": "batch-test", "evidence": "test"},
+            {"subject": "fake", "witness": "fake", "task": "x"}
+        ]
+    })
+    assert r.status_code == 200
+    data = r.json()
+    assert data["total"] == 2
+    assert "valid" in data
+    assert "invalid" in data
+    assert len(data["results"]) == 2
