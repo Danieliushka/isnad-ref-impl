@@ -10,6 +10,7 @@ from isnad.discovery import AgentProfile, DiscoveryRegistry, create_profile
 from isnad.audit import AuditTrail, AuditEntry, AuditEventType
 from isnad.commerce import ServiceListing, TradeRecord, DisputeRecord, CommerceRegistry
 from isnad.trustscore import IsnadBridge, TrustScorer
+from isnad.visualize import render_chain, render_graph, render_agent_summary
 from isnad.rate_limiter import TrustRateLimiter, RateTier, RateCheckResult
 from isnad.batch import verify_batch, verify_chain_batch, BatchReport, VerificationResult
 from isnad.epochs import (
@@ -70,4 +71,7 @@ __all__ = [
     "TrustRateLimiter",
     "RateTier",
     "RateCheckResult",
+    "render_chain",
+    "render_graph",
+    "render_agent_summary",
 ]
