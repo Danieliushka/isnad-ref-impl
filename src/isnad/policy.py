@@ -268,6 +268,123 @@ def open_discovery_policy() -> TrustPolicy:
     return p
 
 
+# --- PolicyEngine: multi-policy composition (strictest wins) ---
+
+# Strictness ordering: DENY > REQUIRE_REVIEW > RATE_LIMIT > ALLOW
+_ACTION_STRICTNESS: dict[PolicyAction, int] = {
+    PolicyAction.DENY: 3,
+    PolicyAction.REQUIRE_REVIEW: 2,
+    PolicyAction.RATE_LIMIT: 1,
+    PolicyAction.ALLOW: 0,
+}
+
+
+class PolicyEngine:
+    """Evaluates multiple TrustPolicies; strictest decision wins.
+
+    Usage:
+        engine = PolicyEngine()
+        engine.add_policy(DefaultPolicies.STRICT)
+        engine.add_policy(custom_policy)
+        decision = engine.evaluate(context)
+    """
+
+    def __init__(self) -> None:
+        self.policies: list[TrustPolicy] = []
+
+    def add_policy(self, policy: TrustPolicy) -> "PolicyEngine":
+        self.policies.append(policy)
+        return self
+
+    def evaluate(self, context: EvaluationContext) -> PolicyDecision:
+        """Evaluate all policies; return the strictest decision."""
+        if not self.policies:
+            return PolicyDecision(
+                action=PolicyAction.DENY,
+                rule_name="no_policies",
+                matched=False,
+                reason="No policies configured in engine",
+                context_agent_id=context.agent_id,
+            )
+
+        decisions = [p.evaluate(context) for p in self.policies]
+        # Pick strictest
+        strictest = max(decisions, key=lambda d: _ACTION_STRICTNESS[d.action])
+        return PolicyDecision(
+            action=strictest.action,
+            rule_name=strictest.rule_name,
+            matched=strictest.matched,
+            reason=f"[{len(decisions)} policies evaluated, strictest wins] {strictest.reason}",
+            context_agent_id=context.agent_id,
+        )
+
+    def evaluate_batch(self, contexts: list[EvaluationContext]) -> list[PolicyDecision]:
+        return [self.evaluate(ctx) for ctx in contexts]
+
+
+class DefaultPolicies:
+    """Preset policy configurations."""
+
+    STRICT: TrustPolicy = None  # type: ignore[assignment]
+    MODERATE: TrustPolicy = None  # type: ignore[assignment]
+    PERMISSIVE: TrustPolicy = None  # type: ignore[assignment]
+
+    @staticmethod
+    def _build_strict() -> TrustPolicy:
+        """score > 0.8, max 24h attestation age."""
+        p = TrustPolicy("strict")
+        p.add_rule(PolicyRule(
+            name="strict-trust-score",
+            requirement=TrustRequirement(min_trust_score=0.8),
+            description="Strict: trust score must exceed 0.8",
+            priority=10,
+        ))
+        p.add_rule(PolicyRule(
+            name="strict-freshness",
+            requirement=TrustRequirement(max_age_seconds=86400),  # 24h
+            description="Strict: attestations must be < 24h old",
+            priority=5,
+        ))
+        return p
+
+    @staticmethod
+    def _build_moderate() -> TrustPolicy:
+        """score > 0.5, max 7 days."""
+        p = TrustPolicy("moderate")
+        p.add_rule(PolicyRule(
+            name="moderate-trust-score",
+            requirement=TrustRequirement(min_trust_score=0.5),
+            description="Moderate: trust score must exceed 0.5",
+            priority=10,
+        ))
+        p.add_rule(PolicyRule(
+            name="moderate-freshness",
+            requirement=TrustRequirement(max_age_seconds=604800),  # 7d
+            description="Moderate: attestations must be < 7 days old",
+            priority=5,
+        ))
+        return p
+
+    @staticmethod
+    def _build_permissive() -> TrustPolicy:
+        """score > 0.2, no age limit."""
+        p = TrustPolicy("permissive", default_action=PolicyAction.ALLOW)
+        p.add_rule(PolicyRule(
+            name="permissive-trust-score",
+            requirement=TrustRequirement(min_trust_score=0.2),
+            description="Permissive: basic trust threshold",
+            on_fail=PolicyAction.DENY,
+            priority=10,
+        ))
+        return p
+
+
+# Initialize class-level presets
+DefaultPolicies.STRICT = DefaultPolicies._build_strict()
+DefaultPolicies.MODERATE = DefaultPolicies._build_moderate()
+DefaultPolicies.PERMISSIVE = DefaultPolicies._build_permissive()
+
+
 def scoped_delegation_policy(required_scopes: list[str]) -> TrustPolicy:
     """Policy requiring specific delegation scopes."""
     p = TrustPolicy("scoped-delegation")

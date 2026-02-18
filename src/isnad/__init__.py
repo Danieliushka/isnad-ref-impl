@@ -24,6 +24,7 @@ EpochManager = EpochRegistry
 from isnad.policy import (
     TrustPolicy, TrustRequirement, PolicyRule, PolicyAction,
     PolicyDecision, EvaluationContext,
+    PolicyEngine, DefaultPolicies,
     strict_commerce_policy, open_discovery_policy, scoped_delegation_policy,
 )
 
