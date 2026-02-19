@@ -19,6 +19,71 @@ from isnad.client import IsnadClient, IsnadError
 DEFAULT_URL = "http://localhost:8420"
 
 
+def cmd_health(client: IsnadClient, args):
+    """Check sandbox server health and connectivity."""
+    try:
+        info = client.health()
+        print("✅ isnad sandbox is healthy")
+        for k, v in info.items():
+            print(f"   {k}: {v}")
+    except Exception as e:
+        print(f"❌ Cannot reach sandbox at {client.base_url}")
+        print(f"   Error: {e}")
+        sys.exit(1)
+    return info
+
+
+def cmd_revoke(client: IsnadClient, args):
+    """Revoke an attestation."""
+    from isnad.revocation import RevocationReason, RevocationList
+
+    reason_map = {
+        "key_compromise": RevocationReason.KEY_COMPROMISE,
+        "superseded": RevocationReason.SUPERSEDED,
+        "ceased_operation": RevocationReason.CEASED_OPERATION,
+        "privilege_withdrawn": RevocationReason.PRIVILEGE_WITHDRAWN,
+    }
+    reason = reason_map.get(args.reason)
+    if not reason:
+        print(f"❌ Unknown reason: {args.reason}")
+        print(f"   Valid: {', '.join(reason_map.keys())}")
+        sys.exit(1)
+
+    rl = RevocationList()
+    record = rl.revoke(args.attestation_id, reason=reason, revoked_by=args.revoked_by or "cli-user")
+    print(f"🚫 Attestation revoked:")
+    print(f"   ID:     {record.attestation_id}")
+    print(f"   Reason: {record.reason.value}")
+    print(f"   By:     {record.revoked_by}")
+    print(f"   Time:   {record.timestamp}")
+    return record
+
+
+def cmd_compare(client: IsnadClient, args):
+    """Compare trust scores of two agents side-by-side."""
+    score_a = client.trust_score(args.agent_a)
+    score_b = client.trust_score(args.agent_b)
+
+    name_a = args.agent_a[:12]
+    name_b = args.agent_b[:12]
+
+    print(f"📊 Trust Score Comparison")
+    print(f"{'─' * 50}")
+    print(f"   Agent A ({name_a}...): {score_a.get('trust_score', 'N/A')}")
+    print(f"   Agent B ({name_b}...): {score_b.get('trust_score', 'N/A')}")
+
+    sa = score_a.get('trust_score', 0)
+    sb = score_b.get('trust_score', 0)
+    if isinstance(sa, (int, float)) and isinstance(sb, (int, float)):
+        diff = abs(sa - sb)
+        leader = "A" if sa > sb else "B" if sb > sa else "tie"
+        if leader == "tie":
+            print(f"   Result: Equal trust scores")
+        else:
+            print(f"   Result: Agent {leader} leads by {diff:.2f}")
+    return {"agent_a": score_a, "agent_b": score_b}
+
+
 def cmd_keygen(client: IsnadClient, args):
     """Generate a new agent keypair."""
     result = client.generate_keys()
@@ -337,6 +402,19 @@ def main():
     p_attest.add_argument("task", help="Task description")
     p_attest.add_argument("--outcome", choices=["positive", "negative"], default="positive")
     
+    sub.add_parser("health", help="Check sandbox health")
+
+    p_revoke = sub.add_parser("revoke", help="Revoke an attestation")
+    p_revoke.add_argument("attestation_id", help="Attestation ID to revoke")
+    p_revoke.add_argument("--reason", default="privilege_withdrawn",
+                          choices=["key_compromise", "superseded", "ceased_operation", "privilege_withdrawn"],
+                          help="Revocation reason")
+    p_revoke.add_argument("--revoked-by", default="", help="ID of revoking agent")
+
+    p_compare = sub.add_parser("compare", help="Compare trust scores of two agents")
+    p_compare.add_argument("agent_a", help="First agent ID")
+    p_compare.add_argument("agent_b", help="Second agent ID")
+
     p_verify = sub.add_parser("verify", help="Verify attestation")
     p_verify.add_argument("attestation_id", help="Attestation ID")
     
@@ -373,6 +451,7 @@ def main():
     client = IsnadClient(args.url)
     
     commands = {
+        "health": cmd_health,
         "keygen": cmd_keygen,
         "attest": cmd_attest,
         "verify": cmd_verify,
@@ -383,6 +462,8 @@ def main():
         "export": cmd_export,
         "batch-verify": cmd_batch_verify,
         "import": cmd_import,
+        "revoke": cmd_revoke,
+        "compare": cmd_compare,
     }
     
     try:
