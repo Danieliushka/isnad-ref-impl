@@ -24,6 +24,9 @@ EpochManager = EpochRegistry
 from isnad.revocation import (
     RevocationReason, RevocationRecord, RevocationList, RevocationCheck,
 )
+from isnad.pricing import (
+    PricingTier, TrustPricingPolicy, PriceQuote, price_for_agent,
+)
 from isnad.policy import (
     TrustPolicy, TrustRequirement, PolicyRule, PolicyAction,
     PolicyDecision, EvaluationContext,
@@ -79,6 +82,10 @@ __all__ = [
     "RevocationRecord",
     "RevocationList",
     "RevocationCheck",
+    "PricingTier",
+    "TrustPricingPolicy",
+    "PriceQuote",
+    "price_for_agent",
     "render_chain",
     "render_graph",
     "render_agent_summary",
