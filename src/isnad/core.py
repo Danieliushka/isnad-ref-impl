@@ -362,6 +362,89 @@ class TrustChain:
             chain._by_witness.setdefault(att.witness, []).append(att)
         return chain
 
+    def export_bundle(self, signer: Optional["AgentIdentity"] = None,
+                      metadata: Optional[dict] = None) -> dict:
+        """
+        Export chain as a portable signed bundle for cross-system sharing.
+        
+        Bundle format (isnad-bundle/v1):
+        {
+            "version": "isnad-bundle/v1",
+            "created_at": ISO timestamp,
+            "metadata": { ... },
+            "attestations": [ ... ],
+            "stats": { subjects, witnesses, count },
+            "signature": hex (optional, if signer provided)
+        }
+        """
+        attestation_data = [a.to_dict() for a in self.attestations]
+        
+        bundle = {
+            "version": "isnad-bundle/v1",
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "metadata": metadata or {},
+            "attestations": attestation_data,
+            "stats": {
+                "count": len(self.attestations),
+                "subjects": len(self._by_subject),
+                "witnesses": len(self._by_witness),
+            },
+        }
+        
+        if signer:
+            # Sign the canonical JSON of attestations + metadata
+            payload = json.dumps(
+                {"attestations": attestation_data, "metadata": bundle["metadata"]},
+                sort_keys=True, separators=(",", ":")
+            ).encode()
+            bundle["signed_by"] = signer.agent_id
+            bundle["signer_pubkey"] = signer.public_key_hex
+            bundle["signature"] = signer.sign(payload).hex()
+        
+        return bundle
+
+    @classmethod
+    def from_bundle(cls, bundle: dict,
+                    verify_signature: bool = True) -> "TrustChain":
+        """
+        Import chain from a portable bundle.
+        
+        Validates bundle version and optionally verifies signature.
+        Raises ValueError on invalid/tampered bundles.
+        """
+        version = bundle.get("version", "")
+        if version != "isnad-bundle/v1":
+            raise ValueError(f"Unsupported bundle version: {version}")
+        
+        # Verify signature if present and requested
+        if verify_signature and "signature" in bundle:
+            pubkey_hex = bundle.get("signer_pubkey")
+            if not pubkey_hex:
+                raise ValueError("Bundle signed but missing signer_pubkey")
+            
+            verify_key = VerifyKey(pubkey_hex.encode(), encoder=HexEncoder)
+            payload = json.dumps(
+                {"attestations": bundle["attestations"],
+                 "metadata": bundle.get("metadata", {})},
+                sort_keys=True, separators=(",", ":")
+            ).encode()
+            signature = bytes.fromhex(bundle["signature"])
+            
+            try:
+                verify_key.verify(payload, signature)
+            except BadSignatureError:
+                raise ValueError("Bundle signature verification failed — data may be tampered")
+        
+        chain = cls()
+        for item in bundle.get("attestations", []):
+            att = Attestation.from_dict(item)
+            if att.verify():
+                chain.attestations.append(att)
+                chain._by_subject.setdefault(att.subject, []).append(att)
+                chain._by_witness.setdefault(att.witness, []).append(att)
+        
+        return chain
+
 
 # ─── Revocation Registry ──────────────────────────────────────────
 
