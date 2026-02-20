@@ -536,6 +536,88 @@ async def delete_policy(name: str):
     return {"deleted": name}
 
 
+# --- Discovery ---
+
+from isnad.discovery import AgentProfile, DiscoveryRegistry, create_profile
+
+discovery_registry = DiscoveryRegistry()
+
+
+class RegisterAgentRequest(BaseModel):
+    agent_id: str
+    name: str
+    capabilities: list[str] = []
+    endpoints: dict[str, str] = {}
+    metadata: dict = {}
+
+
+@app.post("/discovery/register", tags=["discovery"])
+async def discovery_register(req: RegisterAgentRequest):
+    """Register an agent in the discovery registry (auto-signs with agent's key)."""
+    if req.agent_id not in identities:
+        raise HTTPException(404, f"Agent '{req.agent_id}' not found. Create identity first.")
+    identity = identities[req.agent_id]
+    profile = create_profile(
+        identity=identity,
+        name=req.name,
+        capabilities=req.capabilities,
+        endpoints=req.endpoints,
+        metadata=req.metadata,
+    )
+    ok = discovery_registry.register(profile)
+    if not ok:
+        raise HTTPException(400, "Registration failed (invalid signature or stale update)")
+    return {"registered": req.agent_id, "capabilities": req.capabilities}
+
+
+@app.get("/discovery/agents", tags=["discovery"])
+async def discovery_list(capability: Optional[str] = None):
+    """List all discovered agents, optionally filtered by capability."""
+    if capability:
+        profiles = discovery_registry.search(capability=capability)
+    else:
+        profiles = discovery_registry.all()
+    return {"agents": [
+        {
+            "agent_id": p.agent_id,
+            "name": p.name,
+            "public_key": p.public_key,
+            "capabilities": p.capabilities,
+            "endpoints": p.endpoints,
+            "registered_at": p.registered_at,
+        }
+        for p in profiles
+    ]}
+
+
+@app.get("/discovery/agents/{agent_id}", tags=["discovery"])
+async def discovery_get(agent_id: str):
+    """Get a specific agent's discovery profile with signature verification."""
+    profile = discovery_registry.get(agent_id)
+    if not profile:
+        raise HTTPException(404, f"Agent '{agent_id}' not in discovery registry")
+    verified = profile.verify()
+    return {
+        "agent_id": profile.agent_id,
+        "name": profile.name,
+        "public_key": profile.public_key,
+        "capabilities": profile.capabilities,
+        "endpoints": profile.endpoints,
+        "metadata": profile.metadata,
+        "registered_at": profile.registered_at,
+        "signature_valid": verified,
+    }
+
+
+@app.delete("/discovery/agents/{agent_id}", tags=["discovery"])
+async def discovery_unregister(agent_id: str):
+    """Remove an agent from discovery registry."""
+    if not discovery_registry.get(agent_id):
+        raise HTTPException(404, f"Agent '{agent_id}' not in discovery registry")
+    discovery_registry.unregister(agent_id)
+    return {"unregistered": agent_id}
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run(app, host="0.0.0.0", port=8420)
