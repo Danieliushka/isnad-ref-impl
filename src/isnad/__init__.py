@@ -108,3 +108,24 @@ __all__ = [
     "ConflictStrategy",
     "FederatedAttestation",
 ]
+
+# Monitoring
+from .monitoring import (
+    TrustHealthMonitor,
+    MetricsExporter,
+    AnomalyDetector,
+    AnomalyAlert,
+    EventType,
+    MetricEvent,
+    SlidingWindow,
+)
+
+__all__ += [
+    "TrustHealthMonitor",
+    "MetricsExporter",
+    "AnomalyDetector",
+    "AnomalyAlert",
+    "EventType",
+    "MetricEvent",
+    "SlidingWindow",
+]
