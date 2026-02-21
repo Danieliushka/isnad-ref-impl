@@ -246,3 +246,78 @@ class TestIntegration:
         assert log[1][0] == "score"  # score.updated
         assert log[2][0] == "att"  # attestation.revoked
         assert log[2][1].data["reason"] == "capability no longer verified"
+
+
+class TestCoreIntegration:
+    """Test EventBus integration with core TrustChain and RevocationRegistry."""
+
+    def test_trustchain_emits_on_add(self):
+        from isnad.core import AgentIdentity, Attestation, TrustChain
+        bus = EventBus()
+        events = []
+        bus.subscribe("attestation.created", callback=lambda e: events.append(e))
+
+        chain = TrustChain()
+        alice = AgentIdentity()
+        bob = AgentIdentity()
+        att = Attestation(subject=bob.agent_id, witness=alice.agent_id, task="qa")
+        att.sign(alice)
+        chain.add(att, event_bus=bus)
+
+        assert len(events) == 1
+        assert events[0].data["subject"] == bob.agent_id
+        assert events[0].data["witness"] == alice.agent_id
+        assert events[0].data["task"] == "qa"
+        assert events[0].source_agent == alice.agent_id
+
+    def test_trustchain_no_event_on_invalid(self):
+        from isnad.core import Attestation, TrustChain
+        bus = EventBus()
+        events = []
+        bus.subscribe("attestation.*", callback=lambda e: events.append(e))
+
+        chain = TrustChain()
+        # Create an attestation with bad signature
+        att = Attestation(
+            witness="agent:fake",
+            subject="agent:target",
+            task="test",
+            signature="bad",
+            witness_pubkey="bad",
+        )
+        result = chain.add(att, event_bus=bus)
+        assert result is False
+        assert len(events) == 0
+
+    def test_revocation_emits_event(self):
+        from isnad.core import AgentIdentity, RevocationRegistry, RevocationEntry
+        bus = EventBus()
+        events = []
+        bus.subscribe("attestation.revoked", callback=lambda e: events.append(e))
+
+        reg = RevocationRegistry()
+        alice = AgentIdentity()
+        entry = RevocationEntry(
+            target_id="att:12345",
+            revoked_by=alice.agent_id,
+            reason="no longer valid",
+        )
+        reg.revoke(entry, event_bus=bus)
+
+        assert len(events) == 1
+        assert events[0].data["target_id"] == "att:12345"
+        assert events[0].data["reason"] == "no longer valid"
+
+    def test_backward_compatible_no_bus(self):
+        """Existing code without event_bus still works."""
+        from isnad.core import AgentIdentity, Attestation, TrustChain, RevocationRegistry, RevocationEntry
+        chain = TrustChain()
+        alice = AgentIdentity()
+        bob = AgentIdentity()
+        att = Attestation(subject=bob.agent_id, witness=alice.agent_id, task="test")
+        att.sign(alice)
+        assert chain.add(att) is True  # no event_bus, no crash
+
+        reg = RevocationRegistry()
+        entry = RevocationEntry(target_id="x", revoked_by=alice.agent_id, reason="test")
+        reg.revoke(entry)  # no event_bus, no crash

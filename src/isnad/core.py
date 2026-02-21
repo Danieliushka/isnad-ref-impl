@@ -271,8 +271,12 @@ class TrustChain:
         self._by_witness: dict[str, list[Attestation]] = {}
         self.revocations = revocation_registry
     
-    def add(self, attestation: Attestation) -> bool:
-        """Add attestation if valid and not revoked. Returns True if added."""
+    def add(self, attestation: Attestation, event_bus=None) -> bool:
+        """Add attestation if valid and not revoked. Returns True if added.
+
+        If *event_bus* is provided (an ``EventBus`` instance), emits an
+        ``attestation.created`` event on success.
+        """
         if not attestation.verify():
             return False
         if self.revocations and self.revocations.is_revoked(attestation.attestation_id):
@@ -280,6 +284,13 @@ class TrustChain:
         self.attestations.append(attestation)
         self._by_subject.setdefault(attestation.subject, []).append(attestation)
         self._by_witness.setdefault(attestation.witness, []).append(attestation)
+        if event_bus is not None:
+            event_bus.emit("attestation.created", {
+                "attestation_id": attestation.attestation_id,
+                "witness": attestation.witness,
+                "subject": attestation.subject,
+                "task": attestation.task,
+            }, source_agent=attestation.witness)
         return True
     
     def trust_score(self, agent_id: str, scope: Optional[str] = None) -> float:
@@ -781,9 +792,19 @@ class RevocationRegistry:
     def __init__(self):
         self._revoked: dict[str, list[RevocationEntry]] = {}
 
-    def revoke(self, entry: RevocationEntry) -> None:
-        """Add a signed revocation entry."""
+    def revoke(self, entry: RevocationEntry, event_bus=None) -> None:
+        """Add a signed revocation entry.
+
+        If *event_bus* is provided, emits an ``attestation.revoked`` event.
+        """
         self._revoked.setdefault(entry.target_id, []).append(entry)
+        if event_bus is not None:
+            event_bus.emit("attestation.revoked", {
+                "target_id": entry.target_id,
+                "revoked_by": entry.revoked_by,
+                "reason": entry.reason,
+                "scope": entry.scope,
+            }, source_agent=entry.revoked_by)
 
     def is_revoked(self, target_id: str, scope: Optional[str] = None) -> bool:
         """Check if a target (agent or attestation) is revoked."""
