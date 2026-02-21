@@ -31,6 +31,13 @@ from isnad.revocation import (
 from isnad.pricing import (
     PricingTier, TrustPricingPolicy, PriceQuote, price_for_agent,
 )
+from isnad.federation import (
+    FederationHub,
+    FederationPeer,
+    FederationPolicy,
+    ConflictStrategy,
+    FederatedAttestation,
+)
 from isnad.policy import (
     TrustPolicy, TrustRequirement, PolicyRule, PolicyAction,
     PolicyDecision, EvaluationContext,
@@ -93,4 +100,10 @@ __all__ = [
     "render_chain",
     "render_graph",
     "render_agent_summary",
+    # federation
+    "FederationHub",
+    "FederationPeer",
+    "FederationPolicy",
+    "ConflictStrategy",
+    "FederatedAttestation",
 ]
