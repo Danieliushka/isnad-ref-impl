@@ -201,12 +201,18 @@ class Attestation:
         return hashlib.sha256(self.claim_data).hexdigest()[:16]
     
     def sign(self, witness_identity: AgentIdentity) -> "Attestation":
-        """Sign this attestation as the witness."""
+        """Sign this attestation as the witness.
+        
+        Alias: attest() — preferred for clarity.
+        """
         assert witness_identity.agent_id == self.witness, \
             f"Signer {witness_identity.agent_id} != witness {self.witness}"
         self.signature = witness_identity.sign(self.claim_data).hex()
         self.witness_pubkey = witness_identity.public_key_hex
         return self
+
+    # Descriptive alias (preferred)
+    attest = sign
     
     def verify(self) -> bool:
         """Verify the witness's signature."""
@@ -473,9 +479,13 @@ class RevocationEntry:
         return json.dumps(data, sort_keys=True).encode()
 
     def sign(self, identity: AgentIdentity) -> "RevocationEntry":
+        """Sign this revocation entry. Alias: revoke()."""
         sig = identity.sign(self.payload())
         self.signature = sig.hex()
         return self
+
+    # Descriptive alias (preferred)
+    revoke = sign
 
     def verify(self, public_key_hex: str) -> bool:
         if not self.signature:
@@ -559,11 +569,15 @@ class Delegation:
         return json.dumps(data, sort_keys=True, separators=(",", ":")).encode()
 
     def sign(self, identity: AgentIdentity) -> "Delegation":
+        """Sign this delegation. Alias: delegate()."""
         assert identity.agent_id == self.principal, \
             f"Signer {identity.agent_id} != principal {self.principal}"
         self.signature = identity.sign(self.payload()).hex()
         self.principal_pubkey = identity.public_key_hex
         return self
+
+    # Descriptive alias (preferred) — "grant" because "delegate" is already an attribute
+    grant = sign
 
     def verify(self) -> bool:
         if not self.signature or not self.principal_pubkey:

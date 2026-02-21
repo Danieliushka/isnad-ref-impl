@@ -317,3 +317,27 @@ if __name__ == "__main__":
     
     print(f"\n{'='*40}")
     print(f"Results: {passed} passed, {failed} failed, {passed+failed} total")
+
+
+def test_descriptive_aliases():
+    """Test that attest/revoke/delegate aliases work identically to sign()."""
+    from isnad import AgentIdentity, Attestation, RevocationEntry, Delegation, RevocationRegistry
+    import time
+
+    alice = AgentIdentity()
+    bob = AgentIdentity()
+
+    # Attestation.attest() alias
+    att = Attestation(subject=bob.agent_id, witness=alice.agent_id, task="testing", evidence="unit-test")
+    att.attest(alice)
+    assert att.verify()
+
+    # RevocationEntry.revoke() alias
+    entry = RevocationEntry(target_id="test123", revoked_by=alice.agent_id, reason="test", scope="full", timestamp=time.time())
+    entry.revoke(alice)
+    assert entry.verify(alice.public_key_hex)
+
+    # Delegation.delegate() alias
+    deleg = Delegation(principal=alice.agent_id, delegate=bob.agent_id, scopes=["attest"])
+    deleg.grant(alice)
+    assert deleg.verify()
