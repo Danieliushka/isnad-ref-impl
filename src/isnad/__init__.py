@@ -120,6 +120,24 @@ from .monitoring import (
     SlidingWindow,
 )
 
+from isnad.storage import (
+    StorageBackend,
+    MemoryBackend,
+    SQLiteBackend,
+    FileBackend,
+    PersistentTrustChain,
+    PersistentRevocationRegistry,
+)
+
+__all__ += [
+    "StorageBackend",
+    "MemoryBackend",
+    "SQLiteBackend",
+    "FileBackend",
+    "PersistentTrustChain",
+    "PersistentRevocationRegistry",
+]
+
 __all__ += [
     "TrustHealthMonitor",
     "MetricsExporter",

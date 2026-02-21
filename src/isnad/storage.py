@@ -1,18 +1,9 @@
-#!/usr/bin/env python3
 """
-isnad.storage — Pluggable persistence backends for Isnad trust data.
+isnad.storage — Pluggable persistence backends for isnad data structures.
 
-Provides an abstract StorageBackend interface and concrete implementations:
-  - MemoryBackend:  In-memory (default, same as current behavior)
-  - SQLiteBackend:  File-based SQLite for single-node persistence
-  - FileBackend:    JSON-file based storage for simple deployments
-
-Usage:
-    from isnad.storage import SQLiteBackend, PersistentTrustChain
-
-    backend = SQLiteBackend("trust.db")
-    chain = PersistentTrustChain(backend)
-    chain.add(attestation)  # auto-persisted
+Backends: MemoryBackend, SQLiteBackend, FileBackend
+Persistent wrappers: PersistentTrustChain, PersistentRevocationRegistry
+GDPR: delete_by_agent() across all backends
 """
 
 import json
@@ -21,457 +12,371 @@ import sqlite3
 import threading
 import time
 from abc import ABC, abstractmethod
+from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Optional
 
 from isnad.core import (
+    AgentIdentity,
     Attestation,
     RevocationEntry,
-    Delegation,
-    TrustChain,
     RevocationRegistry,
-    DelegationRegistry,
+    TrustChain,
 )
 
 
 # ─── Abstract Backend ──────────────────────────────────────────────
 
 class StorageBackend(ABC):
-    """Abstract interface for isnad persistence."""
+    """Abstract persistence interface."""
 
     @abstractmethod
-    def store_attestation(self, attestation: Attestation) -> None:
-        """Persist a single attestation."""
+    def save(self, key: str, data: dict) -> None: ...
 
     @abstractmethod
-    def load_attestations(self) -> List[dict]:
-        """Load all attestations as dicts."""
+    def load(self, key: str) -> Optional[dict]: ...
 
     @abstractmethod
-    def store_revocation(self, entry: RevocationEntry) -> None:
-        """Persist a revocation entry."""
+    def delete(self, key: str) -> bool: ...
 
     @abstractmethod
-    def load_revocations(self) -> List[dict]:
-        """Load all revocation entries as dicts."""
+    def list_keys(self, prefix: str = "") -> list[str]: ...
 
     @abstractmethod
-    def store_delegation(self, delegation: Delegation) -> None:
-        """Persist a delegation."""
+    def exists(self, key: str) -> bool: ...
 
-    @abstractmethod
-    def load_delegations(self) -> List[dict]:
-        """Load all delegations as dicts."""
+    # Bulk operations (default impls, backends may override)
+    def save_many(self, items: dict[str, dict]) -> None:
+        for k, v in items.items():
+            self.save(k, v)
 
-    @abstractmethod
+    def load_many(self, keys: list[str]) -> dict[str, Optional[dict]]:
+        return {k: self.load(k) for k in keys}
+
+    def delete_many(self, keys: list[str]) -> int:
+        return sum(1 for k in keys if self.delete(k))
+
     def delete_by_agent(self, agent_id: str) -> int:
-        """Delete all data for an agent (GDPR Art. 17). Returns count deleted."""
+        """GDPR: delete all records referencing agent_id."""
+        deleted = 0
+        for key in self.list_keys():
+            data = self.load(key)
+            if data and _references_agent(data, agent_id):
+                if self.delete(key):
+                    deleted += 1
+        return deleted
 
-    @abstractmethod
-    def count(self, collection: str) -> int:
-        """Count items in a collection (attestations/revocations/delegations)."""
 
-    def close(self) -> None:
-        """Clean up resources."""
-        pass
-
-    def __enter__(self):
-        return self
-
-    def __exit__(self, *args):
-        self.close()
+def _references_agent(data: dict, agent_id: str) -> bool:
+    """Check if a data dict references the given agent_id."""
+    for v in data.values():
+        if v == agent_id:
+            return True
+    return False
 
 
 # ─── Memory Backend ────────────────────────────────────────────────
 
 class MemoryBackend(StorageBackend):
-    """In-memory storage (no persistence). Default behavior."""
+    """In-memory dict storage (default, for testing)."""
 
     def __init__(self):
-        self._attestations: List[dict] = []
-        self._revocations: List[dict] = []
-        self._delegations: List[dict] = []
-        self._lock = threading.Lock()
+        self._store: dict[str, dict] = {}
 
-    def store_attestation(self, attestation: Attestation) -> None:
-        with self._lock:
-            self._attestations.append(attestation.to_dict())
+    def save(self, key: str, data: dict) -> None:
+        self._store[key] = data
 
-    def load_attestations(self) -> List[dict]:
-        with self._lock:
-            return list(self._attestations)
+    def load(self, key: str) -> Optional[dict]:
+        return self._store.get(key)
 
-    def store_revocation(self, entry: RevocationEntry) -> None:
-        with self._lock:
-            self._revocations.append(entry.to_dict())
+    def delete(self, key: str) -> bool:
+        return self._store.pop(key, None) is not None
 
-    def load_revocations(self) -> List[dict]:
-        with self._lock:
-            return list(self._revocations)
+    def list_keys(self, prefix: str = "") -> list[str]:
+        return [k for k in self._store if k.startswith(prefix)]
 
-    def store_delegation(self, delegation: Delegation) -> None:
-        with self._lock:
-            self._delegations.append(delegation.to_dict())
-
-    def load_delegations(self) -> List[dict]:
-        with self._lock:
-            return list(self._delegations)
-
-    def delete_by_agent(self, agent_id: str) -> int:
-        with self._lock:
-            count = 0
-            for store, fields in [
-                (self._attestations, ("subject", "witness")),
-                (self._revocations, ("revoked_by",)),
-                (self._delegations, ("principal", "delegate")),
-            ]:
-                before = len(store)
-                store[:] = [
-                    item for item in store
-                    if not any(item.get(f) == agent_id for f in fields)
-                ]
-                count += before - len(store)
-            return count
-
-    def count(self, collection: str) -> int:
-        with self._lock:
-            return len(getattr(self, f"_{collection}", []))
+    def exists(self, key: str) -> bool:
+        return key in self._store
 
 
 # ─── SQLite Backend ────────────────────────────────────────────────
 
 class SQLiteBackend(StorageBackend):
-    """SQLite-based persistence for single-node deployments."""
+    """File-based SQLite with WAL mode, thread-safe."""
 
-    def __init__(self, db_path: str = "isnad.db", wal_mode: bool = True):
-        self.db_path = db_path
-        self._local = threading.local()
-        self._wal_mode = wal_mode
-        # Initialize schema on main thread
-        self._init_schema()
-
-    def _get_conn(self) -> sqlite3.Connection:
-        if not hasattr(self._local, "conn") or self._local.conn is None:
-            self._local.conn = sqlite3.connect(self.db_path)
-            self._local.conn.row_factory = sqlite3.Row
-            if self._wal_mode:
-                self._local.conn.execute("PRAGMA journal_mode=WAL")
-            self._local.conn.execute("PRAGMA foreign_keys=ON")
-        return self._local.conn
-
-    def _init_schema(self) -> None:
-        conn = self._get_conn()
-        conn.executescript("""
-            CREATE TABLE IF NOT EXISTS attestations (
-                attestation_id TEXT PRIMARY KEY,
-                witness TEXT NOT NULL,
-                subject TEXT NOT NULL,
-                task TEXT NOT NULL,
-                evidence TEXT DEFAULT '',
-                timestamp TEXT NOT NULL,
-                signature TEXT,
-                witness_pubkey TEXT,
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_att_subject ON attestations(subject);
-            CREATE INDEX IF NOT EXISTS idx_att_witness ON attestations(witness);
-            CREATE INDEX IF NOT EXISTS idx_att_timestamp ON attestations(timestamp);
-
-            CREATE TABLE IF NOT EXISTS revocations (
-                revocation_id TEXT PRIMARY KEY,
-                target_id TEXT NOT NULL,
-                revoked_by TEXT NOT NULL,
-                reason TEXT DEFAULT '',
-                timestamp REAL NOT NULL,
-                scope TEXT DEFAULT 'general',
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_rev_target ON revocations(target_id);
-            CREATE INDEX IF NOT EXISTS idx_rev_by ON revocations(revoked_by);
-
-            CREATE TABLE IF NOT EXISTS delegations (
-                delegation_id TEXT PRIMARY KEY,
-                principal TEXT NOT NULL,
-                delegate TEXT NOT NULL,
-                scopes TEXT DEFAULT '["*"]',
-                max_depth INTEGER DEFAULT 0,
-                expires_at REAL,
-                timestamp REAL NOT NULL,
-                data TEXT NOT NULL
-            );
-            CREATE INDEX IF NOT EXISTS idx_del_delegate ON delegations(delegate);
-            CREATE INDEX IF NOT EXISTS idx_del_principal ON delegations(principal);
+    def __init__(self, db_path: str = "isnad.db"):
+        self._db_path = db_path
+        self._lock = threading.Lock()
+        self._conn = sqlite3.connect(db_path, check_same_thread=False)
+        self._conn.execute("PRAGMA journal_mode=WAL")
+        self._conn.execute("""
+            CREATE TABLE IF NOT EXISTS kv (
+                key TEXT PRIMARY KEY,
+                data TEXT NOT NULL,
+                agent_id TEXT,
+                created_at TEXT DEFAULT (datetime('now'))
+            )
         """)
-        conn.commit()
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_agent ON kv(agent_id)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_created ON kv(created_at)")
+        self._conn.execute("CREATE INDEX IF NOT EXISTS idx_key_prefix ON kv(key)")
+        self._conn.commit()
 
-    def store_attestation(self, attestation: Attestation) -> None:
-        d = attestation.to_dict()
-        conn = self._get_conn()
-        conn.execute(
-            """INSERT OR REPLACE INTO attestations
-               (attestation_id, witness, subject, task, evidence,
-                timestamp, signature, witness_pubkey, data)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                d["attestation_id"], d["witness"], d["subject"],
-                d["task"], d.get("evidence", ""), d["timestamp"],
-                d.get("signature", ""), d.get("witness_pubkey", ""),
-                json.dumps(d),
-            ),
-        )
-        conn.commit()
+    def save(self, key: str, data: dict) -> None:
+        agent_id = data.get("subject") or data.get("witness") or data.get("revoked_by")
+        with self._lock:
+            self._conn.execute(
+                "INSERT OR REPLACE INTO kv (key, data, agent_id, created_at) VALUES (?, ?, ?, ?)",
+                (key, json.dumps(data), agent_id, datetime.now(timezone.utc).isoformat()),
+            )
+            self._conn.commit()
 
-    def load_attestations(self) -> List[dict]:
-        conn = self._get_conn()
-        rows = conn.execute("SELECT data FROM attestations ORDER BY timestamp").fetchall()
-        return [json.loads(row["data"]) for row in rows]
+    def load(self, key: str) -> Optional[dict]:
+        with self._lock:
+            row = self._conn.execute("SELECT data FROM kv WHERE key = ?", (key,)).fetchone()
+        return json.loads(row[0]) if row else None
 
-    def store_revocation(self, entry: RevocationEntry) -> None:
-        d = entry.to_dict()
-        conn = self._get_conn()
-        conn.execute(
-            """INSERT OR REPLACE INTO revocations
-               (revocation_id, target_id, revoked_by, reason, timestamp, scope, data)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
-            (
-                d.get("revocation_id", d["target_id"]),
-                d["target_id"], d["revoked_by"],
-                d.get("reason", ""), d["timestamp"],
-                d.get("scope", "general"), json.dumps(d),
-            ),
-        )
-        conn.commit()
+    def delete(self, key: str) -> bool:
+        with self._lock:
+            cur = self._conn.execute("DELETE FROM kv WHERE key = ?", (key,))
+            self._conn.commit()
+            return cur.rowcount > 0
 
-    def load_revocations(self) -> List[dict]:
-        conn = self._get_conn()
-        rows = conn.execute("SELECT data FROM revocations ORDER BY timestamp").fetchall()
-        return [json.loads(row["data"]) for row in rows]
+    def list_keys(self, prefix: str = "") -> list[str]:
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT key FROM kv WHERE key LIKE ?", (prefix + "%",)
+            ).fetchall()
+        return [r[0] for r in rows]
 
-    def store_delegation(self, delegation: Delegation) -> None:
-        d = delegation.to_dict()
-        conn = self._get_conn()
-        conn.execute(
-            """INSERT OR REPLACE INTO delegations
-               (delegation_id, principal, delegate, scopes, max_depth,
-                expires_at, timestamp, data)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-            (
-                d["delegation_id"], d["principal"], d["delegate"],
-                json.dumps(d.get("scopes", ["*"])), d.get("max_depth", 0),
-                d.get("expires_at"), d["timestamp"], json.dumps(d),
-            ),
-        )
-        conn.commit()
+    def exists(self, key: str) -> bool:
+        with self._lock:
+            row = self._conn.execute("SELECT 1 FROM kv WHERE key = ?", (key,)).fetchone()
+        return row is not None
 
-    def load_delegations(self) -> List[dict]:
-        conn = self._get_conn()
-        rows = conn.execute("SELECT data FROM delegations ORDER BY timestamp").fetchall()
-        return [json.loads(row["data"]) for row in rows]
+    def query_by_agent(self, agent_id: str) -> list[dict]:
+        """Query all records for a given agent_id."""
+        with self._lock:
+            rows = self._conn.execute(
+                "SELECT key, data FROM kv WHERE agent_id = ?", (agent_id,)
+            ).fetchall()
+        return [json.loads(r[1]) for r in rows]
+
+    def save_many(self, items: dict[str, dict]) -> None:
+        with self._lock:
+            for k, data in items.items():
+                agent_id = data.get("subject") or data.get("witness") or data.get("revoked_by")
+                self._conn.execute(
+                    "INSERT OR REPLACE INTO kv (key, data, agent_id, created_at) VALUES (?, ?, ?, ?)",
+                    (k, json.dumps(data), agent_id, datetime.now(timezone.utc).isoformat()),
+                )
+            self._conn.commit()
+
+    def delete_many(self, keys: list[str]) -> int:
+        with self._lock:
+            total = 0
+            for k in keys:
+                cur = self._conn.execute("DELETE FROM kv WHERE key = ?", (k,))
+                total += cur.rowcount
+            self._conn.commit()
+            return total
 
     def delete_by_agent(self, agent_id: str) -> int:
-        conn = self._get_conn()
-        count = 0
-        count += conn.execute(
-            "DELETE FROM attestations WHERE subject=? OR witness=?",
-            (agent_id, agent_id),
-        ).rowcount
-        count += conn.execute(
-            "DELETE FROM revocations WHERE revoked_by=?",
-            (agent_id,),
-        ).rowcount
-        count += conn.execute(
-            "DELETE FROM delegations WHERE principal=? OR delegate=?",
-            (agent_id, agent_id),
-        ).rowcount
-        conn.commit()
-        return count
+        """GDPR: delete all records where agent_id matches."""
+        with self._lock:
+            # Delete by indexed agent_id column
+            cur = self._conn.execute("DELETE FROM kv WHERE agent_id = ?", (agent_id,))
+            # Also scan for references in data
+            rows = self._conn.execute("SELECT key, data FROM kv").fetchall()
+            extra_keys = []
+            for key, raw in rows:
+                data = json.loads(raw)
+                if _references_agent(data, agent_id):
+                    extra_keys.append(key)
+            extra = 0
+            for k in extra_keys:
+                c = self._conn.execute("DELETE FROM kv WHERE key = ?", (k,))
+                extra += c.rowcount
+            self._conn.commit()
+            return cur.rowcount + extra
 
-    def count(self, collection: str) -> int:
-        table_map = {
-            "attestations": "attestations",
-            "revocations": "revocations",
-            "delegations": "delegations",
-        }
-        table = table_map.get(collection)
-        if not table:
-            return 0
-        conn = self._get_conn()
-        row = conn.execute(f"SELECT COUNT(*) as c FROM {table}").fetchone()
-        return row["c"]
-
-    def query_attestations(
-        self,
-        subject: Optional[str] = None,
-        witness: Optional[str] = None,
-        task: Optional[str] = None,
-        since: Optional[str] = None,
-        limit: int = 1000,
-    ) -> List[dict]:
-        """Advanced query with filters — SQLite advantage over in-memory."""
-        conn = self._get_conn()
-        conditions = ["1=1"]
-        params: list = []
-
-        if subject:
-            conditions.append("subject = ?")
-            params.append(subject)
-        if witness:
-            conditions.append("witness = ?")
-            params.append(witness)
-        if task:
-            conditions.append("task = ?")
-            params.append(task)
-        if since:
-            conditions.append("timestamp >= ?")
-            params.append(since)
-
-        where = " AND ".join(conditions)
-        params.append(limit)
-        rows = conn.execute(
-            f"SELECT data FROM attestations WHERE {where} ORDER BY timestamp DESC LIMIT ?",
-            params,
-        ).fetchall()
-        return [json.loads(row["data"]) for row in rows]
-
-    def close(self) -> None:
-        if hasattr(self._local, "conn") and self._local.conn:
-            self._local.conn.close()
-            self._local.conn = None
+    def close(self):
+        self._conn.close()
 
 
 # ─── File Backend ──────────────────────────────────────────────────
 
 class FileBackend(StorageBackend):
-    """JSON-file persistence for simple deployments."""
+    """JSONL-based file storage. One file per namespace."""
 
-    def __init__(self, directory: str = "isnad_data"):
-        self.directory = Path(directory)
-        self.directory.mkdir(parents=True, exist_ok=True)
+    def __init__(self, base_dir: str = "isnad_data", namespace: str = "default"):
+        self._base_dir = Path(base_dir)
+        self._namespace = namespace
+        self._base_dir.mkdir(parents=True, exist_ok=True)
         self._lock = threading.Lock()
 
-    def _file(self, name: str) -> Path:
-        return self.directory / f"{name}.jsonl"
+    @property
+    def _filepath(self) -> Path:
+        return self._base_dir / f"{self._namespace}.jsonl"
 
-    def _append(self, name: str, data: dict) -> None:
+    def _read_all(self) -> dict[str, dict]:
+        """Read all records from JSONL file."""
+        records: dict[str, dict] = {}
+        if not self._filepath.exists():
+            return records
+        with open(self._filepath, "r") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                entry = json.loads(line)
+                key = entry.get("__key__")
+                if entry.get("__deleted__"):
+                    records.pop(key, None)
+                else:
+                    records[key] = {k: v for k, v in entry.items() if k != "__key__"}
+        return records
+
+    def _rewrite(self, records: dict[str, dict]) -> None:
+        """Compact rewrite of the JSONL file."""
+        with open(self._filepath, "w") as f:
+            for key, data in records.items():
+                entry = {"__key__": key, **data}
+                f.write(json.dumps(entry) + "\n")
+
+    def save(self, key: str, data: dict) -> None:
         with self._lock:
-            with open(self._file(name), "a") as f:
-                f.write(json.dumps(data, separators=(",", ":")) + "\n")
+            entry = {"__key__": key, **data}
+            with open(self._filepath, "a") as f:
+                f.write(json.dumps(entry) + "\n")
 
-    def _load(self, name: str) -> List[dict]:
-        path = self._file(name)
-        if not path.exists():
-            return []
+    def load(self, key: str) -> Optional[dict]:
         with self._lock:
-            items = []
-            with open(path) as f:
-                for line in f:
-                    line = line.strip()
-                    if line:
-                        items.append(json.loads(line))
-            return items
+            records = self._read_all()
+        return records.get(key)
 
-    def _rewrite(self, name: str, items: List[dict]) -> None:
+    def delete(self, key: str) -> bool:
         with self._lock:
-            with open(self._file(name), "w") as f:
-                for item in items:
-                    f.write(json.dumps(item, separators=(",", ":")) + "\n")
+            records = self._read_all()
+            if key not in records:
+                return False
+            # Append delete marker
+            with open(self._filepath, "a") as f:
+                f.write(json.dumps({"__key__": key, "__deleted__": True}) + "\n")
+            return True
 
-    def store_attestation(self, attestation: Attestation) -> None:
-        self._append("attestations", attestation.to_dict())
+    def list_keys(self, prefix: str = "") -> list[str]:
+        with self._lock:
+            records = self._read_all()
+        return [k for k in records if k.startswith(prefix)]
 
-    def load_attestations(self) -> List[dict]:
-        return self._load("attestations")
-
-    def store_revocation(self, entry: RevocationEntry) -> None:
-        self._append("revocations", entry.to_dict())
-
-    def load_revocations(self) -> List[dict]:
-        return self._load("revocations")
-
-    def store_delegation(self, delegation: Delegation) -> None:
-        self._append("delegations", delegation.to_dict())
-
-    def load_delegations(self) -> List[dict]:
-        return self._load("delegations")
+    def exists(self, key: str) -> bool:
+        with self._lock:
+            records = self._read_all()
+        return key in records
 
     def delete_by_agent(self, agent_id: str) -> int:
-        count = 0
-        for name, fields in [
-            ("attestations", ("subject", "witness")),
-            ("revocations", ("revoked_by",)),
-            ("delegations", ("principal", "delegate")),
-        ]:
-            items = self._load(name)
-            filtered = [
-                item for item in items
-                if not any(item.get(f) == agent_id for f in fields)
-            ]
-            count += len(items) - len(filtered)
-            if count > 0:
-                self._rewrite(name, filtered)
-        return count
-
-    def count(self, collection: str) -> int:
-        return len(self._load(collection))
+        with self._lock:
+            records = self._read_all()
+            to_delete = [k for k, v in records.items() if _references_agent(v, agent_id)]
+            if not to_delete:
+                return 0
+            with open(self._filepath, "a") as f:
+                for key in to_delete:
+                    f.write(json.dumps({"__key__": key, "__deleted__": True}) + "\n")
+            return len(to_delete)
 
 
-# ─── Persistent Wrappers ──────────────────────────────────────────
+# ─── Persistent TrustChain ─────────────────────────────────────────
 
-class PersistentTrustChain(TrustChain):
-    """TrustChain with automatic persistence via StorageBackend."""
+class PersistentTrustChain:
+    """Wraps TrustChain + StorageBackend. Auto-persists on add(), hydrates on init."""
 
-    def __init__(self, backend: StorageBackend, revocation_registry=None):
-        super().__init__(revocation_registry=revocation_registry)
-        self.backend = backend
-        self._load_from_backend()
+    def __init__(self, backend: StorageBackend, prefix: str = "attestation:",
+                 revocation_registry: Optional[RevocationRegistry] = None):
+        self._backend = backend
+        self._prefix = prefix
+        self._chain = TrustChain(revocation_registry=revocation_registry)
+        self._hydrate()
 
-    def _load_from_backend(self) -> None:
-        """Hydrate in-memory state from backend."""
-        for data in self.backend.load_attestations():
-            att = Attestation.from_dict(data)
-            super().add(att)
+    def _hydrate(self) -> None:
+        """Load all attestations from backend."""
+        for key in self._backend.list_keys(self._prefix):
+            data = self._backend.load(key)
+            if data:
+                att = Attestation.from_dict(data)
+                # Add directly to chain internals to avoid re-persisting
+                if att.verify():
+                    self._chain.attestations.append(att)
+                    self._chain._by_subject.setdefault(att.subject, []).append(att)
+                    self._chain._by_witness.setdefault(att.witness, []).append(att)
 
     def add(self, attestation: Attestation, event_bus=None) -> bool:
         """Add attestation and persist."""
-        result = super().add(attestation, event_bus=event_bus)
+        result = self._chain.add(attestation, event_bus=event_bus)
         if result:
-            self.backend.store_attestation(attestation)
+            key = f"{self._prefix}{attestation.attestation_id}"
+            self._backend.save(key, attestation.to_dict())
         return result
 
+    def trust_score(self, agent_id: str, scope: Optional[str] = None) -> float:
+        return self._chain.trust_score(agent_id, scope=scope)
 
-class PersistentRevocationRegistry(RevocationRegistry):
-    """RevocationRegistry with automatic persistence."""
+    def chain_trust(self, source: str, target: str, max_hops: int = 5) -> float:
+        return self._chain.chain_trust(source, target, max_hops=max_hops)
 
-    def __init__(self, backend: StorageBackend):
-        super().__init__()
-        self.backend = backend
-        self._load_from_backend_init()
+    @property
+    def attestations(self) -> list[Attestation]:
+        return self._chain.attestations
 
-    def _load_from_backend_init(self) -> None:
-        for data in self.backend.load_revocations():
-            entry = RevocationEntry.from_dict(data)
-            self._revoked.setdefault(entry.target_id, []).append(entry)
+    @property
+    def backend(self) -> StorageBackend:
+        return self._backend
+
+
+# ─── Persistent RevocationRegistry ─────────────────────────────────
+
+class PersistentRevocationRegistry:
+    """Wraps RevocationRegistry + StorageBackend. Auto-persists on revoke()."""
+
+    def __init__(self, backend: StorageBackend, prefix: str = "revocation:"):
+        self._backend = backend
+        self._prefix = prefix
+        self._registry = RevocationRegistry()
+        self._hydrate()
+
+    def _hydrate(self) -> None:
+        for key in self._backend.list_keys(self._prefix):
+            data = self._backend.load(key)
+            if data:
+                entry = RevocationEntry.from_dict(data)
+                self._registry.revoke(entry)
 
     def revoke(self, entry: RevocationEntry, event_bus=None) -> None:
-        super().revoke(entry, event_bus=event_bus)
-        self.backend.store_revocation(entry)
+        self._registry.revoke(entry, event_bus=event_bus)
+        key = f"{self._prefix}{entry.target_id}_{int(entry.timestamp * 1000)}"
+        self._backend.save(key, entry.to_dict())
+
+    def is_revoked(self, target_id: str, scope: Optional[str] = None) -> bool:
+        return self._registry.is_revoked(target_id, scope=scope)
+
+    def get_revocations(self, target_id: str) -> list[RevocationEntry]:
+        return self._registry.get_revocations(target_id)
+
+    @property
+    def all_entries(self) -> list[RevocationEntry]:
+        return self._registry.all_entries
+
+    @property
+    def backend(self) -> StorageBackend:
+        return self._backend
 
 
-class PersistentDelegationRegistry(DelegationRegistry):
-    """DelegationRegistry with automatic persistence."""
-
-    def __init__(self, backend: StorageBackend, revocation_registry=None):
-        super().__init__(revocation_registry=revocation_registry)
-        self.backend = backend
-        self._load_from_backend()
-
-    def _load_from_backend(self) -> None:
-        for data in self.backend.load_delegations():
-            deleg = Delegation.from_dict(data)
-            super().add(deleg)
-
-    def add(self, delegation: Delegation) -> bool:
-        result = super().add(delegation)
-        if result:
-            self.backend.store_delegation(delegation)
-        return result
+__all__ = [
+    "StorageBackend",
+    "MemoryBackend",
+    "SQLiteBackend",
+    "FileBackend",
+    "PersistentTrustChain",
+    "PersistentRevocationRegistry",
+]
