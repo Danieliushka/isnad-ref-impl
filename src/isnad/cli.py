@@ -1,39 +1,210 @@
 #!/usr/bin/env python3
 """
-isnad CLI — Command-line interface for the Agent Trust Protocol.
+isnad CLI — Offline command-line interface for the Agent Trust Protocol.
 
-Usage:
-    python cli.py keygen                          # Generate agent keys
-    python cli.py attest <witness> <subject> <task> [--outcome good|bad]
-    python cli.py verify <attestation_id>
-    python cli.py score <agent_id>
-    python cli.py chain <agent_id>                # Full attestation chain
-    python cli.py demo                            # Run interactive demo
+Works directly with core modules (no server required).
+
+Commands:
+    attest   - Create a signed attestation
+    verify   - Verify an attestation signature
+    chain    - Show trust chain for an agent
+    score    - Calculate trust score
+    revoke   - Revoke an attestation
+    delegate - Manage delegations
+    stats    - Network statistics
 """
 
 import argparse
 import json
 import sys
-from isnad.client import IsnadClient, IsnadError
-
-DEFAULT_URL = "http://localhost:8420"
-
-
-def cmd_health(client: IsnadClient, args):
-    """Check sandbox server health and connectivity."""
-    try:
-        info = client.health()
-        print("✅ isnad sandbox is healthy")
-        for k, v in info.items():
-            print(f"   {k}: {v}")
-    except Exception as e:
-        print(f"❌ Cannot reach sandbox at {client.base_url}")
-        print(f"   Error: {e}")
-        sys.exit(1)
-    return info
+import time
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 
-def cmd_revoke(client: IsnadClient, args):
+def _output(data: dict, args: argparse.Namespace, human_fn=None):
+    """Output data as JSON or pretty-printed."""
+    if getattr(args, 'json', False):
+        print(json.dumps(data, indent=2, default=str))
+    elif human_fn:
+        human_fn(data)
+    else:
+        print(json.dumps(data, indent=2, default=str))
+
+
+def _load_identity(keyfile: str):
+    """Load agent identity from keyfile."""
+    from isnad.core import AgentIdentity
+    return AgentIdentity.load(keyfile)
+
+
+def _load_chain(chainfile: str):
+    """Load trust chain from file."""
+    from isnad.core import TrustChain
+    return TrustChain.load(chainfile)
+
+
+# ─── Commands ──────────────────────────────────────────────────────
+
+def cmd_attest(args):
+    """Create a signed attestation."""
+    from isnad.core import AgentIdentity, Attestation
+
+    witness = AgentIdentity.load(args.keyfile)
+    att = Attestation(
+        subject=args.subject,
+        witness=witness.agent_id,
+        task=args.task,
+        evidence=args.evidence or "",
+    )
+    att.sign(witness)
+
+    result = att.to_dict()
+
+    if args.output:
+        with open(args.output, 'w') as f:
+            json.dump(result, f, indent=2)
+
+    def human(d):
+        print(f"✅ Attestation created")
+        print(f"   ID:       {d['attestation_id']}")
+        print(f"   Witness:  {d['witness']}")
+        print(f"   Subject:  {d['subject']}")
+        print(f"   Task:     {d['task']}")
+        print(f"   Time:     {d['timestamp']}")
+        if args.output:
+            print(f"   Saved to: {args.output}")
+
+    _output(result, args, human)
+    return result
+
+
+def cmd_verify(args):
+    """Verify an attestation from a JSON file or stdin."""
+    from isnad.core import Attestation
+    from isnad.revocation import RevocationList
+
+    if args.file == '-':
+        data = json.load(sys.stdin)
+    else:
+        with open(args.file) as f:
+            data = json.load(f)
+
+    att = Attestation.from_dict(data)
+    sig_valid = att.verify()
+
+    revoked = False
+    if args.revocation_list:
+        with open(args.revocation_list) as f:
+            rl_data = f.read()
+        rl = RevocationList.from_json(rl_data)
+        revoked = rl.is_revoked(att.attestation_id)
+
+    result = {
+        "attestation_id": att.attestation_id,
+        "signature_valid": sig_valid,
+        "revoked": revoked,
+        "valid": sig_valid and not revoked,
+        "witness": att.witness,
+        "subject": att.subject,
+        "task": att.task,
+    }
+
+    def human(d):
+        if d['valid']:
+            print(f"✅ VALID: {d['attestation_id']}")
+        else:
+            print(f"❌ INVALID: {d['attestation_id']}")
+            if not d['signature_valid']:
+                print("   Reason: signature verification failed")
+            if d['revoked']:
+                print("   Reason: attestation has been revoked")
+        print(f"   Witness: {d['witness']}")
+        print(f"   Subject: {d['subject']}")
+        print(f"   Task:    {d['task']}")
+
+    _output(result, args, human)
+    return result
+
+
+def cmd_chain(args):
+    """Show trust chain for an agent."""
+    from isnad.core import TrustChain
+
+    chain = TrustChain.load(args.chainfile)
+    attestations = chain._by_subject.get(args.agent_id, [])
+
+    chain_data = []
+    for att in attestations:
+        chain_data.append({
+            "attestation_id": att.attestation_id,
+            "witness": att.witness,
+            "task": att.task,
+            "evidence": att.evidence,
+            "timestamp": att.timestamp,
+            "valid": att.verify(),
+        })
+
+    # Also show transitive trust if --from is specified
+    transitive = None
+    if args.source:
+        transitive = chain.chain_trust(args.source, args.agent_id)
+
+    result = {
+        "agent_id": args.agent_id,
+        "attestation_count": len(chain_data),
+        "attestations": chain_data,
+    }
+    if transitive is not None:
+        result["transitive_trust_from"] = args.source
+        result["transitive_trust"] = transitive
+
+    def human(d):
+        print(f"🔗 Trust chain for {d['agent_id']}: {d['attestation_count']} attestation(s)")
+        for i, a in enumerate(d['attestations']):
+            status = "✅" if a['valid'] else "❌"
+            print(f"   [{i+1}] {status} {a['witness']} → {a['task']}")
+            if a['evidence']:
+                print(f"       evidence: {a['evidence']}")
+        if 'transitive_trust' in d:
+            print(f"\n   Transitive trust from {d['transitive_trust_from']}: {d['transitive_trust']:.4f}")
+
+    _output(result, args, human)
+    return result
+
+
+def cmd_score(args):
+    """Calculate trust score for an agent."""
+    from isnad.core import TrustChain
+
+    chain = TrustChain.load(args.chainfile)
+    score = chain.trust_score(args.agent_id, scope=args.scope)
+
+    attestations = chain._by_subject.get(args.agent_id, [])
+    witnesses = list({a.witness for a in attestations})
+
+    result = {
+        "agent_id": args.agent_id,
+        "trust_score": round(score, 4),
+        "scope": args.scope,
+        "attestation_count": len(attestations),
+        "unique_witnesses": len(witnesses),
+        "witnesses": witnesses,
+    }
+
+    def human(d):
+        print(f"📊 Trust Score for {d['agent_id']}")
+        print(f"   Score:        {d['trust_score']}")
+        if d['scope']:
+            print(f"   Scope:        {d['scope']}")
+        print(f"   Attestations: {d['attestation_count']}")
+        print(f"   Witnesses:    {d['unique_witnesses']}")
+
+    _output(result, args, human)
+    return result
+
+
+def cmd_revoke(args):
     """Revoke an attestation."""
     from isnad.revocation import RevocationReason, RevocationList
 
@@ -43,433 +214,291 @@ def cmd_revoke(client: IsnadClient, args):
         "ceased_operation": RevocationReason.CEASED_OPERATION,
         "privilege_withdrawn": RevocationReason.PRIVILEGE_WITHDRAWN,
     }
+
     reason = reason_map.get(args.reason)
     if not reason:
-        print(f"❌ Unknown reason: {args.reason}")
-        print(f"   Valid: {', '.join(reason_map.keys())}")
+        print(f"❌ Unknown reason: {args.reason}", file=sys.stderr)
         sys.exit(1)
 
-    rl = RevocationList()
-    record = rl.revoke(args.attestation_id, reason=reason, revoked_by=args.revoked_by or "cli-user")
-    print(f"🚫 Attestation revoked:")
-    print(f"   ID:     {record.attestation_id}")
-    print(f"   Reason: {record.reason.value}")
-    print(f"   By:     {record.revoked_by}")
-    print(f"   Time:   {record.timestamp}")
-    return record
-
-
-def cmd_compare(client: IsnadClient, args):
-    """Compare trust scores of two agents side-by-side."""
-    score_a = client.trust_score(args.agent_a)
-    score_b = client.trust_score(args.agent_b)
-
-    name_a = args.agent_a[:12]
-    name_b = args.agent_b[:12]
-
-    print(f"📊 Trust Score Comparison")
-    print(f"{'─' * 50}")
-    print(f"   Agent A ({name_a}...): {score_a.get('trust_score', 'N/A')}")
-    print(f"   Agent B ({name_b}...): {score_b.get('trust_score', 'N/A')}")
-
-    sa = score_a.get('trust_score', 0)
-    sb = score_b.get('trust_score', 0)
-    if isinstance(sa, (int, float)) and isinstance(sb, (int, float)):
-        diff = abs(sa - sb)
-        leader = "A" if sa > sb else "B" if sb > sa else "tie"
-        if leader == "tie":
-            print(f"   Result: Equal trust scores")
-        else:
-            print(f"   Result: Agent {leader} leads by {diff:.2f}")
-    return {"agent_a": score_a, "agent_b": score_b}
-
-
-def cmd_keygen(client: IsnadClient, args):
-    """Generate a new agent keypair."""
-    result = client.generate_keys()
-    print(f"🔑 Agent ID:    {result['agent_id']}")
-    print(f"📝 Public Key:  {result['public_key'][:32]}...")
-    print(f"🔐 Private Key: {result['private_key'][:16]}... (keep secret!)")
-    return result
-
-
-def cmd_attest(client: IsnadClient, args):
-    """Create an attestation."""
-    att = client.create_attestation(
-        witness_id=args.witness,
-        subject_id=args.subject,
-        task=args.task,
-        outcome=args.outcome or "positive",
-    )
-    print(f"✅ Attestation created:")
-    print(f"   ID:      {att['attestation_id']}")
-    print(f"   Witness: {args.witness}")
-    print(f"   Subject: {args.subject}")
-    print(f"   Task:    {args.task}")
-    print(f"   Outcome: {args.outcome or 'positive'}")
-    return att
-
-
-def cmd_verify(client: IsnadClient, args):
-    """Verify an attestation."""
-    result = client.verify_attestation(args.attestation_id)
-    status = "✅ VALID" if result.get("valid") else "❌ INVALID"
-    print(f"{status}: {args.attestation_id}")
-    if not result.get("valid"):
-        print(f"   Reason: {result.get('reason', 'unknown')}")
-    return result
-
-
-def cmd_score(client: IsnadClient, args):
-    """Get trust score for an agent."""
-    score = client.trust_score(args.agent_id)
-    ts = score.get("trust_score", score.get("score", "N/A"))
-    level = score.get("level", "unknown")
-    print(f"📊 Trust Score for {args.agent_id}:")
-    print(f"   Score: {ts}")
-    print(f"   Level: {level}")
-    detectors = score.get("detectors", {})
-    if detectors:
-        print(f"   Detectors:")
-        for name, val in detectors.items():
-            print(f"     {name}: {val}")
-    return score
-
-
-def cmd_chain(client: IsnadClient, args):
-    """Get attestation chain for an agent."""
-    chain = client.get_chain(args.agent_id)
-    attestations = chain.get("attestations", chain.get("chain", []))
-    print(f"🔗 Chain for {args.agent_id}: {len(attestations)} attestations")
-    for i, att in enumerate(attestations):
-        print(f"   [{i+1}] {att.get('witness_id', '?')} → {att.get('task', '?')} ({att.get('outcome', '?')})")
-    return chain
-
-
-def cmd_demo(client: IsnadClient, args):
-    """Run an interactive demo of the trust protocol."""
-    print("🎭 Agent Trust Protocol — Interactive Demo\n")
-    
-    # Step 1: Generate two agents
-    print("Step 1: Creating two agents...")
-    alice = client.generate_keys()
-    bob = client.generate_keys()
-    print(f"   Alice: {alice['agent_id'][:16]}...")
-    print(f"   Bob:   {bob['agent_id'][:16]}...")
-    
-    # Step 2: Alice attests Bob
-    print("\nStep 2: Alice attests Bob did good code review...")
-    att1 = client.create_attestation(
-        witness_id=alice["agent_id"],
-        subject_id=bob["agent_id"],
-        task="code-review",
-        outcome="positive",
-    )
-    print(f"   ✅ Attestation: {att1['attestation_id'][:16]}...")
-    
-    # Step 3: Verify
-    print("\nStep 3: Verifying attestation...")
-    v = client.verify_attestation(att1["attestation_id"])
-    print(f"   {'✅ Valid' if v.get('valid') else '❌ Invalid'}")
-    
-    # Step 4: Check Bob's score
-    print("\nStep 4: Bob's trust score...")
-    score = client.trust_score(bob["agent_id"])
-    ts = score.get("trust_score", score.get("score", "N/A"))
-    print(f"   📊 Score: {ts}")
-    
-    # Step 5: Bob attests Alice back (cross-verification)
-    print("\nStep 5: Bob attests Alice (cross-verification)...")
-    att2 = client.create_attestation(
-        witness_id=bob["agent_id"],
-        subject_id=alice["agent_id"],
-        task="data-analysis",
-        outcome="positive",
-    )
-    print(f"   ✅ Cross-attestation: {att2['attestation_id'][:16]}...")
-    
-    # Final scores
-    print("\n📊 Final Trust Scores:")
-    for name, agent in [("Alice", alice), ("Bob", bob)]:
-        s = client.trust_score(agent["agent_id"])
-        print(f"   {name}: {s.get('trust_score', s.get('score', 'N/A'))}")
-    
-    print("\n🎉 Demo complete! Both agents now have verifiable trust chains.")
-
-
-def cmd_audit(client: IsnadClient, args):
-    """Generate compliance audit report for an agent."""
-    print(f"📋 Compliance Audit Report — {args.agent_id}\n")
-    print(f"{'='*60}")
-    
-    # Get chain
-    chain = client.get_chain(args.agent_id)
-    attestations = chain.get("attestations", chain.get("chain", []))
-    
-    # Get score
-    score = client.trust_score(args.agent_id)
-    ts = score.get("trust_score", score.get("score", "N/A"))
-    level = score.get("level", "unknown")
-    
-    print(f"Agent:        {args.agent_id}")
-    print(f"Trust Score:  {ts}")
-    print(f"Trust Level:  {level}")
-    print(f"Attestations: {len(attestations)}")
-    print(f"{'='*60}\n")
-    
-    # Verify each attestation
-    valid_count = 0
-    invalid_count = 0
-    witnesses = set()
-    tasks = {}
-    
-    for att in attestations:
-        att_id = att.get("attestation_id", att.get("id", "unknown"))
+    # Load existing list or create new
+    if args.revocation_list:
         try:
-            v = client.verify_attestation(att_id)
-            is_valid = v.get("valid", False)
-        except Exception:
-            is_valid = False
-        
-        if is_valid:
-            valid_count += 1
-            status = "✅"
-        else:
-            invalid_count += 1
-            status = "❌"
-        
-        witness = att.get("witness_id", "?")
-        task = att.get("task", "?")
-        outcome = att.get("outcome", "?")
-        witnesses.add(witness)
-        tasks[task] = tasks.get(task, 0) + 1
-        
-        print(f"  {status} [{att_id[:12]}...] {witness[:12]}... → {task} ({outcome})")
-    
-    print(f"\n{'='*60}")
-    print(f"Summary:")
-    print(f"  Valid:      {valid_count}/{len(attestations)}")
-    print(f"  Invalid:    {invalid_count}/{len(attestations)}")
-    print(f"  Witnesses:  {len(witnesses)} unique")
-    print(f"  Tasks:      {', '.join(f'{k}({v})' for k,v in tasks.items())}")
-    
-    integrity = "PASS" if invalid_count == 0 and len(attestations) > 0 else "FAIL" if invalid_count > 0 else "INSUFFICIENT DATA"
-    print(f"  Integrity:  {integrity}")
-    print(f"{'='*60}")
-    
-    if args.output:
-        import json as _json
-        report = {
-            "agent_id": args.agent_id,
-            "trust_score": ts,
-            "level": level,
-            "total_attestations": len(attestations),
-            "valid": valid_count,
-            "invalid": invalid_count,
-            "unique_witnesses": len(witnesses),
-            "tasks": tasks,
-            "integrity": integrity,
-        }
-        with open(args.output, "w") as f:
-            _json.dump(report, f, indent=2)
-        print(f"\n📄 Report saved to {args.output}")
-    
-    return {"integrity": integrity, "valid": valid_count, "invalid": invalid_count}
-
-
-def cmd_export(client: IsnadClient, args):
-    """Export agent data as JSON for integration."""
-    chain = client.get_chain(args.agent_id)
-    score = client.trust_score(args.agent_id)
-    
-    export = {
-        "version": "isnad/1.0",
-        "agent_id": args.agent_id,
-        "trust_score": score,
-        "chain": chain,
-    }
-    
-    output = json.dumps(export, indent=2)
-    
-    if args.output:
-        with open(args.output, "w") as f:
-            f.write(output)
-        print(f"📦 Exported to {args.output}")
+            with open(args.revocation_list) as f:
+                rl = RevocationList.from_json(f.read())
+        except FileNotFoundError:
+            rl = RevocationList()
     else:
-        print(output)
-    
-    return export
+        rl = RevocationList()
+
+    record = rl.revoke(args.attestation_id, reason=reason, revoked_by=args.revoked_by or "cli")
+
+    # Save if output specified
+    outfile = args.output or args.revocation_list
+    if outfile:
+        with open(outfile, 'w') as f:
+            f.write(rl.to_json())
+
+    result = record.to_dict()
+
+    def human(d):
+        print(f"🚫 Attestation revoked")
+        print(f"   ID:     {d['attestation_id']}")
+        print(f"   Reason: {d['reason']}")
+        print(f"   By:     {d['revoked_by']}")
+        if outfile:
+            print(f"   Saved:  {outfile}")
+
+    _output(result, args, human)
+    return result
 
 
-def cmd_batch_verify(client: IsnadClient, args):
-    """Batch verify attestations from a JSON file."""
-    with open(args.file, "r") as f:
-        data = json.load(f)
+def cmd_delegate(args):
+    """Manage delegations."""
+    from isnad.core import AgentIdentity
+    from isnad.delegation import Delegation, DelegationRegistry
+    from nacl.signing import SigningKey
+    from nacl.encoding import HexEncoder
 
-    attestations = data if isinstance(data, list) else data.get("attestations", [data])
-    
-    results = {"total": len(attestations), "valid": 0, "invalid": 0, "errors": []}
-    
-    for i, att in enumerate(attestations):
-        att_id = att.get("id") or att.get("attestation_id")
-        if not att_id:
-            results["errors"].append({"index": i, "error": "missing attestation id"})
-            results["invalid"] += 1
-            continue
-        try:
-            result = client.verify_attestation(att_id)
-            if result.get("valid"):
-                results["valid"] += 1
-            else:
-                results["invalid"] += 1
-                results["errors"].append({"index": i, "id": att_id, "error": "verification failed"})
-        except IsnadError as e:
-            results["invalid"] += 1
-            results["errors"].append({"index": i, "id": att_id, "error": str(e)})
-    
-    print(f"📊 Batch Verification Results:")
-    print(f"   Total:   {results['total']}")
-    print(f"   ✅ Valid:  {results['valid']}")
-    print(f"   ❌ Invalid: {results['invalid']}")
-    
-    if results["errors"] and args.verbose:
-        print(f"\n   Errors:")
-        for err in results["errors"]:
-            print(f"   [{err.get('index')}] {err.get('id', 'N/A')}: {err['error']}")
-    
-    if args.output:
-        with open(args.output, "w") as f:
-            json.dump(results, f, indent=2)
-        print(f"\n📦 Report saved to {args.output}")
-    
-    return results
+    subcmd = args.delegate_command
+
+    if subcmd == "create":
+        principal = AgentIdentity.load(args.keyfile)
+        sk = principal.signing_key
+
+        deleg = Delegation(
+            delegate_key_hex=args.delegate_key,
+            delegator_key_hex=principal.public_key_hex,
+            scope=args.scope,
+            expires_at=args.expires,
+            max_depth=args.max_depth,
+        )
+
+        registry = DelegationRegistry()
+        if args.registry:
+            try:
+                registry.load(args.registry)
+            except FileNotFoundError:
+                pass
+
+        deleg = registry.add(deleg, sk)
+
+        if args.registry:
+            registry.save(args.registry)
+
+        result = deleg.to_dict()
+
+        def human(d):
+            print(f"✅ Delegation created")
+            print(f"   Hash:      {d['content_hash']}")
+            print(f"   Delegator: {d['delegator_key_hex'][:16]}...")
+            print(f"   Delegate:  {d['delegate_key_hex'][:16]}...")
+            print(f"   Scope:     {d.get('scope', 'all')}")
+            print(f"   Max depth: {d['max_depth']}")
+
+        _output(result, args, human)
+        return result
+
+    elif subcmd == "verify":
+        registry = DelegationRegistry()
+        registry.load(args.registry)
+        valid, reason = registry.verify_chain(args.delegation_hash)
+
+        result = {
+            "delegation_hash": args.delegation_hash,
+            "valid": valid,
+            "reason": reason,
+        }
+
+        def human(d):
+            status = "✅ VALID" if d['valid'] else "❌ INVALID"
+            print(f"{status}: {d['delegation_hash']}")
+            print(f"   Reason: {d['reason']}")
+
+        _output(result, args, human)
+        return result
+
+    elif subcmd == "list":
+        registry = DelegationRegistry()
+        registry.load(args.registry)
+        delegations = registry.get_delegations_for(args.delegate_key, scope=args.scope)
+
+        items = [d.to_dict() for d in delegations]
+        result = {"delegate": args.delegate_key, "delegations": items}
+
+        def human(d):
+            print(f"📋 Delegations for {d['delegate'][:16]}...")
+            for i, item in enumerate(d['delegations']):
+                exp = f" (expires {item.get('expires_at', 'never')})" if item.get('expires_at') else ""
+                print(f"   [{i+1}] scope={item.get('scope', 'all')}{exp} depth={item['current_depth']}/{item['max_depth']}")
+
+        _output(result, args, human)
+        return result
 
 
-def cmd_import(client: IsnadClient, args):
-    """Import agent trust data from an isnad export file."""
-    with open(args.file, "r") as f:
-        data = json.load(f)
-    
-    version = data.get("version", "unknown")
-    if not version.startswith("isnad/"):
-        print(f"⚠️  Warning: unknown format version '{version}'", file=sys.stderr)
-    
-    agent_id = data.get("agent_id")
-    chain = data.get("chain", {})
-    attestations = chain.get("attestations", [])
-    
-    print(f"📥 Importing trust data for agent {agent_id}")
-    print(f"   Format: {version}")
-    print(f"   Attestations: {len(attestations)}")
-    
-    imported = 0
-    skipped = 0
-    
-    for att in attestations:
-        try:
-            # Re-create attestation in local sandbox
-            client.create_attestation(
-                witness_id=att.get("witness", att.get("witness_id", "")),
-                subject_id=att.get("subject", att.get("subject_id", agent_id)),
-                task=att.get("task", att.get("scope", "imported")),
-                evidence=att.get("evidence", ""),
-            )
-            imported += 1
-        except IsnadError:
-            skipped += 1
-    
-    print(f"\n   ✅ Imported: {imported}")
-    if skipped:
-        print(f"   ⏭️  Skipped:  {skipped}")
-    
-    return {"imported": imported, "skipped": skipped}
+def cmd_stats(args):
+    """Network statistics using analytics module."""
+    from isnad.core import TrustChain
+    from isnad.analytics import TrustGraph, TrustAnalytics
+
+    chain = TrustChain.load(args.chainfile)
+
+    # Build graph from chain
+    graph = TrustGraph()
+    for att in chain.attestations:
+        graph.add_edge(att.witness, att.subject, score=1.0)
+
+    analytics = TrustAnalytics(graph)
+    stats = analytics.network_stats()
+    pr = analytics.pagerank()
+    communities = analytics.communities()
+
+    # Top agents by pagerank
+    top_agents = sorted(pr.items(), key=lambda x: x[1], reverse=True)[:args.top]
+
+    result = {
+        "network": {
+            "agents": stats.num_agents,
+            "edges": stats.num_edges,
+            "density": round(stats.density, 4),
+            "components": stats.num_components,
+            "largest_component": stats.largest_component_size,
+            "communities": stats.num_communities,
+            "diameter": stats.diameter,
+            "reciprocity": round(stats.reciprocity, 4),
+            "avg_clustering": round(stats.avg_clustering, 4),
+        },
+        "top_agents": [
+            {"agent_id": a, "pagerank": round(s, 6)} for a, s in top_agents
+        ],
+        "communities": [
+            {"id": i, "size": len(c), "members": sorted(c)}
+            for i, c in enumerate(communities)
+        ],
+    }
+
+    def human(d):
+        n = d['network']
+        print(f"📊 Network Statistics")
+        print(f"   Agents:          {n['agents']}")
+        print(f"   Edges:           {n['edges']}")
+        print(f"   Density:         {n['density']}")
+        print(f"   Components:      {n['components']}")
+        print(f"   Largest:         {n['largest_component']}")
+        print(f"   Communities:     {n['communities']}")
+        print(f"   Diameter:        {n['diameter']}")
+        print(f"   Reciprocity:     {n['reciprocity']}")
+        print(f"   Avg clustering:  {n['avg_clustering']}")
+        if d['top_agents']:
+            print(f"\n   Top agents by PageRank:")
+            for ta in d['top_agents']:
+                print(f"     {ta['agent_id'][:24]}... PR={ta['pagerank']}")
+        if d['communities']:
+            print(f"\n   Communities:")
+            for c in d['communities']:
+                print(f"     [{c['id']}] {c['size']} members")
+
+    _output(result, args, human)
+    return result
 
 
-def main():
+# ─── Parser ────────────────────────────────────────────────────────
+
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
-        description="isnad CLI — Agent Trust Protocol",
+        prog="isnad",
+        description="isnad — Agent Trust Protocol CLI",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
-    parser.add_argument("--url", default=DEFAULT_URL, help="Sandbox API URL")
-    
-    sub = parser.add_subparsers(dest="command", help="Command")
-    
-    sub.add_parser("keygen", help="Generate agent keys")
-    
-    p_attest = sub.add_parser("attest", help="Create attestation")
-    p_attest.add_argument("witness", help="Witness agent ID")
-    p_attest.add_argument("subject", help="Subject agent ID")
-    p_attest.add_argument("task", help="Task description")
-    p_attest.add_argument("--outcome", choices=["positive", "negative"], default="positive")
-    
-    sub.add_parser("health", help="Check sandbox health")
+    parser.add_argument("--json", action="store_true", help="Machine-readable JSON output")
 
-    p_revoke = sub.add_parser("revoke", help="Revoke an attestation")
-    p_revoke.add_argument("attestation_id", help="Attestation ID to revoke")
-    p_revoke.add_argument("--reason", default="privilege_withdrawn",
-                          choices=["key_compromise", "superseded", "ceased_operation", "privilege_withdrawn"],
-                          help="Revocation reason")
-    p_revoke.add_argument("--revoked-by", default="", help="ID of revoking agent")
+    sub = parser.add_subparsers(dest="command", help="Available commands")
 
-    p_compare = sub.add_parser("compare", help="Compare trust scores of two agents")
-    p_compare.add_argument("agent_a", help="First agent ID")
-    p_compare.add_argument("agent_b", help="Second agent ID")
+    # attest
+    p = sub.add_parser("attest", help="Create a signed attestation")
+    p.add_argument("subject", help="Subject agent ID")
+    p.add_argument("task", help="Task description")
+    p.add_argument("-k", "--keyfile", required=True, help="Witness identity keyfile")
+    p.add_argument("-e", "--evidence", default="", help="Evidence URI")
+    p.add_argument("-o", "--output", help="Save attestation to file")
 
-    p_verify = sub.add_parser("verify", help="Verify attestation")
-    p_verify.add_argument("attestation_id", help="Attestation ID")
-    
-    p_score = sub.add_parser("score", help="Get trust score")
-    p_score.add_argument("agent_id", help="Agent ID")
-    
-    p_chain = sub.add_parser("chain", help="Get attestation chain")
-    p_chain.add_argument("agent_id", help="Agent ID")
-    
-    sub.add_parser("demo", help="Run interactive demo")
-    
-    p_audit = sub.add_parser("audit", help="Generate compliance audit report")
-    p_audit.add_argument("agent_id", help="Agent ID to audit")
-    p_audit.add_argument("-o", "--output", help="Save report to JSON file")
-    
-    p_export = sub.add_parser("export", help="Export agent data as JSON")
-    p_export.add_argument("agent_id", help="Agent ID")
-    p_export.add_argument("-o", "--output", help="Output file (stdout if omitted)")
-    
-    p_batch = sub.add_parser("batch-verify", help="Batch verify attestations from JSON file")
-    p_batch.add_argument("file", help="JSON file with attestations")
-    p_batch.add_argument("-o", "--output", help="Save report to JSON file")
-    p_batch.add_argument("-v", "--verbose", action="store_true", help="Show error details")
-    
-    p_import = sub.add_parser("import", help="Import trust data from isnad export file")
-    p_import.add_argument("file", help="isnad export JSON file")
-    
-    args = parser.parse_args()
-    
+    # verify
+    p = sub.add_parser("verify", help="Verify an attestation")
+    p.add_argument("file", help="Attestation JSON file (- for stdin)")
+    p.add_argument("-r", "--revocation-list", help="Revocation list file to check against")
+
+    # chain
+    p = sub.add_parser("chain", help="Show trust chain for an agent")
+    p.add_argument("agent_id", help="Agent ID")
+    p.add_argument("-c", "--chainfile", required=True, help="Chain JSON file")
+    p.add_argument("-f", "--source", help="Compute transitive trust from this agent")
+
+    # score
+    p = sub.add_parser("score", help="Calculate trust score")
+    p.add_argument("agent_id", help="Agent ID")
+    p.add_argument("-c", "--chainfile", required=True, help="Chain JSON file")
+    p.add_argument("-s", "--scope", help="Filter by scope/task type")
+
+    # revoke
+    p = sub.add_parser("revoke", help="Revoke an attestation")
+    p.add_argument("attestation_id", help="Attestation ID to revoke")
+    p.add_argument("--reason", default="privilege_withdrawn",
+                   choices=["key_compromise", "superseded", "ceased_operation", "privilege_withdrawn"])
+    p.add_argument("--revoked-by", default="", help="ID of revoking agent")
+    p.add_argument("-r", "--revocation-list", help="Existing revocation list file")
+    p.add_argument("-o", "--output", help="Output revocation list file")
+
+    # delegate
+    p = sub.add_parser("delegate", help="Manage delegations")
+    dsub = p.add_subparsers(dest="delegate_command", help="Delegation subcommands")
+
+    dp = dsub.add_parser("create", help="Create a delegation")
+    dp.add_argument("delegate_key", help="Delegate's public key hex")
+    dp.add_argument("-k", "--keyfile", required=True, help="Principal identity keyfile")
+    dp.add_argument("-s", "--scope", help="Scope constraint")
+    dp.add_argument("-e", "--expires", help="Expiry ISO timestamp")
+    dp.add_argument("-d", "--max-depth", type=int, default=1, help="Max sub-delegation depth")
+    dp.add_argument("-r", "--registry", help="Registry file to save to")
+
+    dp = dsub.add_parser("verify", help="Verify a delegation chain")
+    dp.add_argument("delegation_hash", help="Delegation hash to verify")
+    dp.add_argument("-r", "--registry", required=True, help="Registry file")
+
+    dp = dsub.add_parser("list", help="List delegations for an agent")
+    dp.add_argument("delegate_key", help="Delegate's public key hex")
+    dp.add_argument("-r", "--registry", required=True, help="Registry file")
+    dp.add_argument("-s", "--scope", help="Filter by scope")
+
+    # stats
+    p = sub.add_parser("stats", help="Network statistics")
+    p.add_argument("-c", "--chainfile", required=True, help="Chain JSON file")
+    p.add_argument("-t", "--top", type=int, default=10, help="Top N agents to show")
+
+    return parser
+
+
+def main(argv: Optional[list[str]] = None) -> Optional[dict]:
+    """CLI entry point. Returns result dict for testing."""
+    parser = build_parser()
+    args = parser.parse_args(argv)
+
     if not args.command:
         parser.print_help()
         sys.exit(1)
-    
-    client = IsnadClient(args.url)
-    
+
     commands = {
-        "health": cmd_health,
-        "keygen": cmd_keygen,
         "attest": cmd_attest,
         "verify": cmd_verify,
-        "score": cmd_score,
         "chain": cmd_chain,
-        "demo": cmd_demo,
-        "audit": cmd_audit,
-        "export": cmd_export,
-        "batch-verify": cmd_batch_verify,
-        "import": cmd_import,
+        "score": cmd_score,
         "revoke": cmd_revoke,
-        "compare": cmd_compare,
+        "delegate": cmd_delegate,
+        "stats": cmd_stats,
     }
-    
+
     try:
-        commands[args.command](client, args)
-    except IsnadError as e:
-        print(f"❌ API Error: {e}", file=sys.stderr)
+        return commands[args.command](args)
+    except FileNotFoundError as e:
+        print(f"❌ File not found: {e}", file=sys.stderr)
         sys.exit(1)
     except Exception as e:
         print(f"❌ Error: {e}", file=sys.stderr)
