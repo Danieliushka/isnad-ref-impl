@@ -7,6 +7,7 @@ from isnad.core import (
 )
 from isnad.client import IsnadClient, IsnadError
 from isnad.discovery import AgentProfile, DiscoveryRegistry, create_profile
+from isnad.events import Event, EventBus, EventType, get_event_bus
 from isnad.audit import AuditTrail, AuditEntry, AuditEventType
 from isnad.commerce import ServiceListing, TradeRecord, DisputeRecord, CommerceRegistry
 from isnad.trustscore import IsnadBridge, TrustScorer
