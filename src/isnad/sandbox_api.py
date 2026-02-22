@@ -26,7 +26,14 @@ app = FastAPI(
 
 from fastapi.responses import HTMLResponse
 
-LANDING_HTML = """<!DOCTYPE html>
+# Load landing page from docs/site/index.html if available
+import os as _os
+_site_path = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "..", "..", "docs", "site", "index.html")
+if _os.path.exists(_site_path):
+    with open(_site_path, "r") as _f:
+        LANDING_HTML = _f.read()
+else:
+    LANDING_HTML = """<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
@@ -100,10 +107,23 @@ curl /sandbox/trust/score?agent_id=other-agent
 </html>"""
 
 
+def _load_landing():
+    import os
+    # Try multiple paths
+    for base in [
+        os.path.dirname(os.path.abspath(__file__)),
+        "/root/.openclaw/workspace/projects/isnad-ref-impl/src/isnad",
+    ]:
+        site_path = os.path.join(base, "..", "..", "docs", "site", "index.html")
+        if os.path.exists(site_path):
+            with open(site_path, "r") as f:
+                return f.read()
+    return LANDING_HTML
+
 @app.get("/", response_class=HTMLResponse)
 async def landing():
     """Landing page with project overview and quick-start examples."""
-    return LANDING_HTML
+    return _load_landing()
 
 # --- In-memory stores ---
 _identities: dict[str, AgentIdentity] = {}  # agent_id -> identity
