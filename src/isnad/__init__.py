@@ -120,6 +120,12 @@ from .monitoring import (
     SlidingWindow,
 )
 
+from isnad.metrics import (
+    NetworkHealthMetrics,
+    SecurityPosture,
+    TrustDistribution,
+)
+
 from isnad.storage import (
     StorageBackend,
     MemoryBackend,
@@ -128,6 +134,12 @@ from isnad.storage import (
     PersistentTrustChain,
     PersistentRevocationRegistry,
 )
+
+__all__ += [
+    "NetworkHealthMetrics",
+    "SecurityPosture",
+    "TrustDistribution",
+]
 
 __all__ += [
     "StorageBackend",
