@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en" class="scroll-smooth">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>isnad — Agent Trust Protocol</title>
+<meta name="description" content="Cryptographic trust chains for AI agents. Verify identity, score trust, federate across platforms.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+*, *::before, *::after { margin: 0; padding: 0; box-sizing: border-box; }
+
+:root {
+  --bg: #09090b;
+  --bg-subtle: #0f0f13;
+  --bg-card: #141419;
+  --bg-card-hover: #1a1a22;
+  --border: #1f1f2a;
+  --border-bright: #2a2a3a;
+  --text: #fafafa;
+  --text-secondary: #a1a1aa;
+  --text-muted: #71717a;
+  --accent: #6d5cff;
+  --accent-bright: #8b7dff;
+  --accent-glow: rgba(109, 92, 255, 0.15);
+  --green: #22c55e;
+  --green-dim: rgba(34, 197, 94, 0.12);
+  --cyan: #06b6d4;
+  --amber: #f59e0b;
+  --radius: 12px;
+}
+
+html { font-family: 'Inter', -apple-system, sans-serif; background: var(--bg); color: var(--text); }
+body { overflow-x: hidden; }
+a { color: inherit; text-decoration: none; }
+
+/* Utility */
+.container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+.badge { display: inline-flex; align-items: center; gap: 6px; padding: 6px 14px; border-radius: 100px; font-size: 13px; font-weight: 500; border: 1px solid var(--border-bright); color: var(--text-secondary); background: var(--bg-subtle); }
+.badge .dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); animation: pulse-dot 2s infinite; }
+@keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: 0.4; } }
+.btn { display: inline-flex; align-items: center; gap: 8px; padding: 12px 24px; border-radius: 10px; font-size: 15px; font-weight: 600; border: none; cursor: pointer; transition: all 0.2s; font-family: inherit; }
+.btn-primary { background: var(--accent); color: #fff; }
+.btn-primary:hover { background: var(--accent-bright); transform: translateY(-1px); box-shadow: 0 8px 30px rgba(109,92,255,0.3); }
+.btn-secondary { background: transparent; color: var(--text); border: 1px solid var(--border-bright); }
+.btn-secondary:hover { border-color: var(--text-muted); background: var(--bg-card); }
+.section-label { font-size: 13px; font-weight: 600; text-transform: uppercase; letter-spacing: 1.5px; color: var(--accent-bright); margin-bottom: 16px; }
+.section-title { font-size: clamp(28px, 4vw, 42px); font-weight: 800; line-height: 1.15; letter-spacing: -0.03em; margin-bottom: 16px; }
+.section-desc { font-size: 17px; color: var(--text-secondary); line-height: 1.7; max-width: 600px; }
+
+/* Animations */
+@keyframes fade-up { from { opacity: 0; transform: translateY(30px); } to { opacity: 1; transform: translateY(0); } }
+.animate { opacity: 0; animation: fade-up 0.7s ease forwards; }
+.delay-1 { animation-delay: 0.1s; }
+.delay-2 { animation-delay: 0.2s; }
+.delay-3 { animation-delay: 0.3s; }
+.delay-4 { animation-delay: 0.4s; }
+
+/* Nav */
+nav { position: fixed; top: 0; left: 0; right: 0; z-index: 100; padding: 16px 0; transition: all 0.3s; }
+nav.scrolled { background: rgba(9,9,11,0.85); backdrop-filter: blur(20px); border-bottom: 1px solid var(--border); }
+nav .container { display: flex; align-items: center; justify-content: space-between; }
+.nav-logo { font-size: 20px; font-weight: 800; letter-spacing: -0.04em; display: flex; align-items: center; gap: 10px; }
+.nav-logo .icon { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), #a78bfa); display: flex; align-items: center; justify-content: center; font-size: 16px; }
+.nav-links { display: flex; align-items: center; gap: 32px; }
+.nav-links a { font-size: 14px; color: var(--text-muted); font-weight: 500; transition: color 0.2s; }
+.nav-links a:hover { color: var(--text); }
+.nav-cta { padding: 8px 18px; font-size: 13px; }
+.mobile-menu-btn { display: none; background: none; border: none; color: var(--text); cursor: pointer; }
+
+/* Hero */
+.hero { padding: 160px 0 120px; text-align: center; position: relative; overflow: hidden; }
+.hero::before { content: ''; position: absolute; top: -200px; left: 50%; transform: translateX(-50%); width: 800px; height: 800px; background: radial-gradient(circle, var(--accent-glow), transparent 70%); pointer-events: none; }
+.hero h1 { font-size: clamp(40px, 6vw, 72px); font-weight: 800; letter-spacing: -0.04em; line-height: 1.05; margin: 24px 0; }
+.hero h1 .gradient { background: linear-gradient(135deg, #fff 30%, var(--accent-bright)); -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-clip: text; }
+.hero p { font-size: 18px; color: var(--text-secondary); max-width: 560px; margin: 0 auto 40px; line-height: 1.7; }
+.hero-btns { display: flex; gap: 12px; justify-content: center; flex-wrap: wrap; }
+.hero-stats { display: flex; gap: 48px; justify-content: center; margin-top: 64px; flex-wrap: wrap; }
+.hero-stats .stat { text-align: center; }
+.hero-stats .stat-value { font-size: 28px; font-weight: 800; letter-spacing: -0.03em; font-variant-numeric: tabular-nums; }
+.hero-stats .stat-label { font-size: 13px; color: var(--text-muted); margin-top: 4px; }
+
+/* Code preview */
+.code-preview { max-width: 680px; margin: 64px auto 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; text-align: left; }
+.code-header { display: flex; align-items: center; gap: 8px; padding: 14px 20px; border-bottom: 1px solid var(--border); }
+.code-header .dots { display: flex; gap: 6px; }
+.code-header .dots span { width: 10px; height: 10px; border-radius: 50%; }
+.code-header .dots span:nth-child(1) { background: #ef4444; }
+.code-header .dots span:nth-child(2) { background: #f59e0b; }
+.code-header .dots span:nth-child(3) { background: #22c55e; }
+.code-header .filename { margin-left: 12px; font-size: 13px; color: var(--text-muted); font-family: 'JetBrains Mono', monospace; }
+pre { padding: 24px; overflow-x: auto; font-family: 'JetBrains Mono', monospace; font-size: 13.5px; line-height: 1.7; }
+pre code { color: var(--text-secondary); }
+.tok-kw { color: #c084fc; }
+.tok-str { color: #34d399; }
+.tok-fn { color: #60a5fa; }
+.tok-cm { color: #52525b; }
+.tok-num { color: #f59e0b; }
+.tok-type { color: #38bdf8; }
+.tok-op { color: #a1a1aa; }
+
+/* Features */
+.features { padding: 120px 0; }
+.features-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-top: 48px; }
+.feature-card { padding: 32px; border-radius: var(--radius); background: var(--bg-card); border: 1px solid var(--border); transition: all 0.3s; }
+.feature-card:hover { border-color: var(--border-bright); background: var(--bg-card-hover); transform: translateY(-2px); }
+.feature-icon { width: 44px; height: 44px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 20px; margin-bottom: 20px; }
+.feature-card h3 { font-size: 17px; font-weight: 700; margin-bottom: 10px; letter-spacing: -0.01em; }
+.feature-card p { font-size: 14px; color: var(--text-muted); line-height: 1.65; }
+
+/* How it works */
+.how-it-works { padding: 120px 0; background: var(--bg-subtle); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.steps { display: grid; grid-template-columns: repeat(4, 1fr); gap: 24px; margin-top: 48px; }
+.step { position: relative; padding: 32px 24px; }
+.step-num { font-size: 48px; font-weight: 800; color: var(--accent); opacity: 0.25; font-variant-numeric: tabular-nums; margin-bottom: 16px; line-height: 1; }
+.step h3 { font-size: 16px; font-weight: 700; margin-bottom: 8px; }
+.step p { font-size: 14px; color: var(--text-muted); line-height: 1.6; }
+.step::after { content: '→'; position: absolute; right: -16px; top: 50%; font-size: 20px; color: var(--border-bright); }
+.step:last-child::after { display: none; }
+
+/* API section */
+.api-section { padding: 120px 0; }
+.api-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 48px; align-items: start; margin-top: 48px; }
+.api-examples { display: flex; flex-direction: column; gap: 16px; }
+.api-tab-bar { display: flex; gap: 4px; background: var(--bg-subtle); border-radius: 10px; padding: 4px; border: 1px solid var(--border); }
+.api-tab { padding: 8px 16px; border-radius: 8px; font-size: 13px; font-weight: 500; cursor: pointer; color: var(--text-muted); transition: all 0.2s; border: none; background: none; font-family: inherit; }
+.api-tab.active { background: var(--bg-card); color: var(--text); border: 1px solid var(--border); }
+.api-info h3 { font-size: 20px; font-weight: 700; margin-bottom: 12px; letter-spacing: -0.02em; }
+.api-info p { font-size: 15px; color: var(--text-secondary); line-height: 1.7; margin-bottom: 24px; }
+.api-feature-list { list-style: none; display: flex; flex-direction: column; gap: 14px; }
+.api-feature-list li { display: flex; gap: 10px; font-size: 14px; color: var(--text-secondary); align-items: flex-start; }
+.api-feature-list li::before { content: '✓'; color: var(--green); font-weight: 700; flex-shrink: 0; }
+
+/* Get Started */
+.get-started { padding: 120px 0; text-align: center; position: relative; }
+.get-started::before { content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%); width: 600px; height: 600px; background: radial-gradient(circle, var(--accent-glow), transparent 70%); pointer-events: none; }
+.install-box { max-width: 520px; margin: 40px auto 0; background: var(--bg-card); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; display: flex; align-items: center; justify-content: space-between; font-family: 'JetBrains Mono', monospace; font-size: 14px; }
+.install-box code { color: var(--text-secondary); }
+.install-box code span { color: var(--green); }
+.copy-btn { background: none; border: 1px solid var(--border); color: var(--text-muted); padding: 6px 12px; border-radius: 6px; font-size: 12px; cursor: pointer; font-family: inherit; transition: all 0.2s; }
+.copy-btn:hover { border-color: var(--text-muted); color: var(--text); }
+.get-started-links { display: flex; gap: 12px; justify-content: center; margin-top: 32px; flex-wrap: wrap; }
+
+/* Footer */
+footer { padding: 48px 0; border-top: 1px solid var(--border); }
+footer .container { display: flex; align-items: center; justify-content: space-between; }
+footer p { font-size: 13px; color: var(--text-muted); }
+footer .links { display: flex; gap: 24px; }
+footer .links a { font-size: 13px; color: var(--text-muted); transition: color 0.2s; }
+footer .links a:hover { color: var(--text); }
+
+/* Responsive */
+@media (max-width: 900px) {
+  .features-grid { grid-template-columns: 1fr 1fr; }
+  .steps { grid-template-columns: 1fr 1fr; }
+  .step::after { display: none; }
+  .api-grid { grid-template-columns: 1fr; }
+  .nav-links { display: none; }
+  .mobile-menu-btn { display: block; }
+}
+@media (max-width: 600px) {
+  .features-grid { grid-template-columns: 1fr; }
+  .steps { grid-template-columns: 1fr; }
+  .hero-stats { gap: 32px; }
+  .hero { padding: 130px 0 80px; }
+  footer .container { flex-direction: column; gap: 16px; text-align: center; }
+}
+</style>
+</head>
+<body>
+
+<!-- Nav -->
+<nav id="nav">
+  <div class="container">
+    <a href="#" class="nav-logo">
+      <div class="icon">◈</div>
+      isnad
+    </a>
+    <div class="nav-links">
+      <a href="#features">Features</a>
+      <a href="#how-it-works">How It Works</a>
+      <a href="#api">API</a>
+      <a href="https://github.com/nicepkg/isnad" target="_blank">GitHub</a>
+      <a href="#get-started" class="btn btn-primary nav-cta">Get Started</a>
+    </div>
+    <button class="mobile-menu-btn" onclick="document.querySelector('.nav-links').style.display = this.dataset.open ? 'none' : 'flex'; this.dataset.open = this.dataset.open ? '' : '1';" aria-label="Menu">
+      <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="container">
+    <div class="badge animate"><span class="dot"></span> 1,004 tests passing · 36 modules</div>
+    <h1 class="animate delay-1"><span class="gradient">Trust infrastructure</span><br>for AI agents</h1>
+    <p class="animate delay-2">Cryptographic trust chains, identity verification, and federation for the agentic web. Open source. Production ready.</p>
+    <div class="hero-btns animate delay-3">
+      <a href="#get-started" class="btn btn-primary">
+        <svg width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M8 1v14M1 8l7 7 7-7"/></svg>
+        Get Started
+      </a>
+      <a href="https://github.com/nicepkg/isnad" target="_blank" class="btn btn-secondary">
+        <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42-3.58-8-8-8z"/></svg>
+        GitHub
+      </a>
+    </div>
+    <div class="hero-stats animate delay-4">
+      <div class="stat"><div class="stat-value">Ed25519</div><div class="stat-label">Signatures</div></div>
+      <div class="stat"><div class="stat-value">DID</div><div class="stat-label">Identity</div></div>
+      <div class="stat"><div class="stat-value">0.0 → 1.0</div><div class="stat-label">Trust Scores</div></div>
+      <div class="stat"><div class="stat-value">∞</div><div class="stat-label">Federation</div></div>
+    </div>
+
+    <!-- Code Preview -->
+    <div class="code-preview animate delay-4">
+      <div class="code-header">
+        <div class="dots"><span></span><span></span><span></span></div>
+        <span class="filename">quickstart.ts</span>
+      </div>
+      <pre><code><span class="tok-kw">import</span> { TrustChain, Agent, Attestation } <span class="tok-kw">from</span> <span class="tok-str">'isnad'</span>;
+
+<span class="tok-cm">// Create an agent with DID identity</span>
+<span class="tok-kw">const</span> agent = <span class="tok-kw">await</span> Agent.<span class="tok-fn">create</span>({
+  <span class="tok-fn">name</span>: <span class="tok-str">'my-agent'</span>,
+  <span class="tok-fn">capabilities</span>: [<span class="tok-str">'code-review'</span>, <span class="tok-str">'deploy'</span>]
+});
+
+<span class="tok-cm">// Issue a signed attestation</span>
+<span class="tok-kw">const</span> attestation = <span class="tok-kw">await</span> Attestation.<span class="tok-fn">sign</span>({
+  <span class="tok-fn">issuer</span>: agent,
+  <span class="tok-fn">subject</span>: <span class="tok-str">'did:isnad:peer-agent-42'</span>,
+  <span class="tok-fn">trustScore</span>: <span class="tok-num">0.92</span>,
+  <span class="tok-fn">scope</span>: <span class="tok-str">'code-review'</span>
+});
+
+<span class="tok-cm">// Verify trust chain</span>
+<span class="tok-kw">const</span> result = <span class="tok-kw">await</span> TrustChain.<span class="tok-fn">verify</span>(attestation);
+console.<span class="tok-fn">log</span>(result.trusted);  <span class="tok-cm">// true</span></code></pre>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="features" id="features">
+  <div class="container">
+    <div class="section-label">Features</div>
+    <div class="section-title">Everything agents need<br>to trust each other</div>
+    <p class="section-desc">A complete toolkit for building trust in multi-agent systems — from identity to federation.</p>
+    <div class="features-grid">
+      <div class="feature-card">
+        <div class="feature-icon" style="background: rgba(109,92,255,0.12); color: var(--accent-bright);">🔗</div>
+        <h3>Cryptographic Trust Chains</h3>
+        <p>Ed25519 signed attestations form verifiable chains of trust. Every claim is cryptographically bound to its issuer.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background: rgba(34,197,94,0.12); color: var(--green);">📊</div>
+        <h3>Trust Scoring</h3>
+        <p>Continuous 0.0–1.0 trust scores with confidence levels. Bayesian updates from observed behavior over time.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background: rgba(6,182,212,0.12); color: var(--cyan);">🆔</div>
+        <h3>DID Identity</h3>
+        <p>Decentralized identifiers for every agent. Self-sovereign identity that works across platforms and providers.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background: rgba(245,158,11,0.12); color: var(--amber);">🌐</div>
+        <h3>Federation</h3>
+        <p>Trust data flows across organizational boundaries. Federate with other isnad nodes or any compatible system.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background: rgba(239,68,68,0.12); color: #ef4444;">⚡</div>
+        <h3>Circuit Breaker</h3>
+        <p>Automatically isolate compromised agents. Configurable thresholds trigger instant revocation of trust.</p>
+      </div>
+      <div class="feature-card">
+        <div class="feature-icon" style="background: rgba(168,85,247,0.12); color: #a855f7;">🔌</div>
+        <h3>ACP Bridge</h3>
+        <p>Native integration with Virtuals Agent Commerce Protocol. Bring trust verification to agent-to-agent commerce.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- How It Works -->
+<section class="how-it-works" id="how-it-works">
+  <div class="container">
+    <div class="section-label">How It Works</div>
+    <div class="section-title">Four steps to trusted agents</div>
+    <p class="section-desc">From zero to verified in minutes. No central authority required.</p>
+    <div class="steps">
+      <div class="step">
+        <div class="step-num">01</div>
+        <h3>Create Identity</h3>
+        <p>Generate a DID and Ed25519 keypair. Your agent now has a cryptographic identity that's globally unique.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">02</div>
+        <h3>Issue Attestations</h3>
+        <p>Sign trust claims about other agents — capabilities, behavior, reliability. Each one is a verifiable credential.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">03</div>
+        <h3>Build Trust Chains</h3>
+        <p>Attestations link together. Agent A trusts B, B trusts C — now A can evaluate C through the chain.</p>
+      </div>
+      <div class="step">
+        <div class="step-num">04</div>
+        <h3>Verify & Decide</h3>
+        <p>Query the trust score for any agent. Get a 0.0–1.0 score with confidence. Make informed access decisions.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- API -->
+<section class="api-section" id="api">
+  <div class="container">
+    <div class="section-label">API</div>
+    <div class="section-title">Developer-first design</div>
+    <div class="api-grid">
+      <div class="api-info">
+        <h3>Clean, typed, predictable</h3>
+        <p>Every API is fully typed with TypeScript. Async-first design with sensible defaults. Zero configuration to start, full control when you need it.</p>
+        <ul class="api-feature-list">
+          <li>Full TypeScript types and JSDoc</li>
+          <li>Promise-based async API throughout</li>
+          <li>Pluggable storage backends</li>
+          <li>Event-driven architecture</li>
+          <li>Rate limiting and metrics built-in</li>
+          <li>Revocation registry with CRL support</li>
+          <li>36 modules, each independently importable</li>
+        </ul>
+      </div>
+      <div class="api-examples">
+        <div class="api-tab-bar">
+          <button class="api-tab active" onclick="showTab(0)">Trust Score</button>
+          <button class="api-tab" onclick="showTab(1)">Federation</button>
+          <button class="api-tab" onclick="showTab(2)">Circuit Breaker</button>
+        </div>
+        <div class="code-preview" style="margin: 0;">
+          <div class="code-header">
+            <div class="dots"><span></span><span></span><span></span></div>
+            <span class="filename" id="tab-filename">trust-score.ts</span>
+          </div>
+          <pre><code id="tab-code"></code></pre>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Get Started -->
+<section class="get-started" id="get-started">
+  <div class="container">
+    <div class="section-label">Get Started</div>
+    <div class="section-title">Ship trusted agents today</div>
+    <p class="section-desc" style="margin: 0 auto;">Open source. MIT licensed. Install and go.</p>
+    <div class="install-box">
+      <code>$ <span>npm install isnad</span></code>
+      <button class="copy-btn" onclick="navigator.clipboard.writeText('npm install isnad'); this.textContent='Copied!'; setTimeout(()=>this.textContent='Copy',1500);">Copy</button>
+    </div>
+    <div class="get-started-links">
+      <a href="https://github.com/nicepkg/isnad" target="_blank" class="btn btn-primary">View on GitHub</a>
+      <a href="https://github.com/nicepkg/isnad#readme" target="_blank" class="btn btn-secondary">Read the Docs</a>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <div class="container">
+    <p>© 2025 isnad — Agent Trust Protocol. MIT License.</p>
+    <div class="links">
+      <a href="https://github.com/nicepkg/isnad" target="_blank">GitHub</a>
+      <a href="https://github.com/nicepkg/isnad#readme" target="_blank">Docs</a>
+      <a href="https://github.com/nicepkg/isnad/issues" target="_blank">Issues</a>
+    </div>
+  </div>
+</footer>
+
+<script>
+// Nav scroll
+const nav = document.getElementById('nav');
+window.addEventListener('scroll', () => nav.classList.toggle('scrolled', window.scrollY > 40));
+
+// API tabs
+const tabs = [
+  {
+    file: 'trust-score.ts',
+    code: `<span class="tok-kw">import</span> { TrustScorer } <span class="tok-kw">from</span> <span class="tok-str">'isnad/scoring'</span>;
+
+<span class="tok-kw">const</span> scorer = <span class="tok-kw">new</span> <span class="tok-type">TrustScorer</span>({ <span class="tok-fn">decay</span>: <span class="tok-str">'exponential'</span> });
+
+<span class="tok-cm">// Compute trust from attestation chain</span>
+<span class="tok-kw">const</span> score = <span class="tok-kw">await</span> scorer.<span class="tok-fn">evaluate</span>({
+  <span class="tok-fn">subject</span>: <span class="tok-str">'did:isnad:agent-42'</span>,
+  <span class="tok-fn">context</span>: <span class="tok-str">'code-execution'</span>,
+  <span class="tok-fn">maxDepth</span>: <span class="tok-num">5</span>
+});
+
+console.<span class="tok-fn">log</span>(score.value);       <span class="tok-cm">// 0.87</span>
+console.<span class="tok-fn">log</span>(score.confidence);  <span class="tok-cm">// 'high'</span>
+console.<span class="tok-fn">log</span>(score.chainLength); <span class="tok-cm">// 3</span>`
+  },
+  {
+    file: 'federation.ts',
+    code: `<span class="tok-kw">import</span> { Federation } <span class="tok-kw">from</span> <span class="tok-str">'isnad/federation'</span>;
+
+<span class="tok-kw">const</span> fed = <span class="tok-kw">new</span> <span class="tok-type">Federation</span>({
+  <span class="tok-fn">node</span>: <span class="tok-str">'https://trust.myplatform.ai'</span>,
+  <span class="tok-fn">peers</span>: [<span class="tok-str">'https://trust.partner.dev'</span>]
+});
+
+<span class="tok-cm">// Sync attestations with peers</span>
+<span class="tok-kw">await</span> fed.<span class="tok-fn">sync</span>();
+
+<span class="tok-cm">// Query across the federation</span>
+<span class="tok-kw">const</span> result = <span class="tok-kw">await</span> fed.<span class="tok-fn">resolve</span>(
+  <span class="tok-str">'did:isnad:remote-agent'</span>
+);
+console.<span class="tok-fn">log</span>(result.attestations); <span class="tok-cm">// [...]</span>`
+  },
+  {
+    file: 'circuit-breaker.ts',
+    code: `<span class="tok-kw">import</span> { CircuitBreaker } <span class="tok-kw">from</span> <span class="tok-str">'isnad/safety'</span>;
+
+<span class="tok-kw">const</span> breaker = <span class="tok-kw">new</span> <span class="tok-type">CircuitBreaker</span>({
+  <span class="tok-fn">threshold</span>: <span class="tok-num">0.3</span>,        <span class="tok-cm">// trip below this</span>
+  <span class="tok-fn">window</span>: <span class="tok-str">'5m'</span>,           <span class="tok-cm">// evaluation window</span>
+  <span class="tok-fn">autoRevoke</span>: <span class="tok-kw">true</span>       <span class="tok-cm">// revoke on trip</span>
+});
+
+breaker.<span class="tok-fn">on</span>(<span class="tok-str">'trip'</span>, (agent) <span class="tok-kw">=></span> {
+  console.<span class="tok-fn">log</span>(<span class="tok-str">\`⚠️ Blocked: \${agent.did}\`</span>);
+});
+
+<span class="tok-cm">// Monitor an agent</span>
+breaker.<span class="tok-fn">watch</span>(<span class="tok-str">'did:isnad:agent-99'</span>);</code>`
+  }
+];
+
+function showTab(i) {
+  document.querySelectorAll('.api-tab').forEach((t, j) => t.classList.toggle('active', j === i));
+  document.getElementById('tab-filename').textContent = tabs[i].file;
+  document.getElementById('tab-code').innerHTML = tabs[i].code;
+}
+showTab(0);
+
+// Intersection observer for animations
+const observer = new IntersectionObserver((entries) => {
+  entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('animate'); observer.unobserve(e.target); } });
+}, { threshold: 0.1 });
+document.querySelectorAll('.feature-card, .step').forEach(el => observer.observe(el));
+</script>
+</body>
+</html>
