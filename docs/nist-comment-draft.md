@@ -116,6 +116,37 @@ v0.3.0 extends this with **TTL-based freshness decay** — attestations have con
 
 ---
 
+## Comment 5: Real-World Deployment Evidence for Demonstration Design
+
+**NIST Focus Area:** All (Cross-cutting)
+
+### The Gap
+The concept paper proposes demonstration scenarios but acknowledges limited real-world data on agent identity systems in production. Most existing solutions remain theoretical or operate only in controlled lab environments. The demonstration project needs grounding in actual deployment experiences.
+
+### Evidence from Production Deployment
+isnad has been deployed in a live multi-agent environment since February 2026, providing concrete operational data:
+
+**Infrastructure:**
+- Docker-based deployment with REST API (certification endpoint, attestation CRUD, trust scoring)
+- Automated CI/CD pipeline with 1,013 tests across 36 modules
+- Integration with the Virtuals ACP marketplace (5 service offerings with structured quality evaluation)
+- Cross-platform operation: agents on OpenClaw, LangChain, and custom frameworks interacting through isnad attestations
+
+**Operational Findings:**
+1. **Key rotation in practice** — Agent restarts (every 2h in our environment) require seamless identity continuity. We solved this with deterministic key derivation from a stable seed, avoiding the "19-hour downtime" problem of manual rotation.
+2. **Negative attestations matter** — Pure positive-signal systems (only recording successes) create a "silent failure" problem. Our QA and code review handlers emit structured quality scores that feed back as both positive and negative isnad attestations.
+3. **Domain-specific decay is essential** — A security audit from last week is less trustworthy than a capability attestation from last week. Uniform TTL policies fail in practice; v0.3's per-attestation-type decay factors reflect this.
+4. **Certification API as trust gateway** — We operate a certification endpoint where agents submit their capabilities for independent verification. This provides a concrete model for NIST's proposed "trust registry" concept.
+
+### Recommendation for Demonstration
+The NCCoE demonstration should require participants to provide:
+1. Minimum 30 days of production deployment data (not just test results)
+2. Cross-platform interoperability evidence (not single-framework demos)
+3. Failure mode documentation (what broke and how it was recovered)
+4. Quantified trust decay parameters validated against real agent behavior
+
+---
+
 ## Offer to Participate
 
 We would welcome the opportunity to participate in the NCCoE demonstration project. isnad is:
