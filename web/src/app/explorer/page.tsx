@@ -10,17 +10,12 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { mockAgents, type AgentStatus, type ExplorerAgent } from "@/lib/mock-data";
 
-type FilterStatus = "all" | AgentStatus;
 type SortKey = "score-desc" | "score-asc" | "recent" | "name-az";
 
 const ITEMS_PER_PAGE = 10;
 
-const filters: { key: FilterStatus; label: string }[] = [
-  { key: "all", label: "All" },
-  { key: "certified", label: "Certified" },
-  { key: "pending", label: "Pending" },
-  { key: "failed", label: "Failed" },
-];
+const platformFilters = ["all", "ugig", "Clawk", "AgentMail", "other"] as const;
+type PlatformFilter = (typeof platformFilters)[number];
 
 const sorts: { key: SortKey; label: string }[] = [
   { key: "score-desc", label: "Score (high→low)" },
@@ -40,21 +35,19 @@ function relativeTime(date: Date): string {
   return `${days}d ago`;
 }
 
-function statusLabel(s: AgentStatus) {
-  if (s === "certified") return { text: "Certified ✓", cls: "text-green-400" };
-  if (s === "pending") return { text: "Pending", cls: "text-yellow-400" };
-  return { text: "Failed ✗", cls: "text-red-400" };
+function statusBadge(s: AgentStatus) {
+  if (s === "certified") return { text: "Certified", variant: "success" as const };
+  if (s === "pending") return { text: "Pending", variant: "warning" as const };
+  return { text: "Failed", variant: "danger" as const };
 }
 
-function topCategory(cats: ExplorerAgent["score"]["categories"]): string {
-  const entries = Object.entries(cats) as [string, number][];
-  const best = entries.reduce((a, b) => (b[1] > a[1] ? b : a));
-  return `${best[0].charAt(0).toUpperCase() + best[0].slice(1)}: ${best[1].toFixed(2)}`;
+function attestationCount(overall: number): number {
+  return Math.floor(overall * 0.15 + Math.random() * 3);
 }
 
 export default function ExplorerPage() {
   const [search, setSearch] = useState("");
-  const [filter, setFilter] = useState<FilterStatus>("all");
+  const [platformFilter, setPlatformFilter] = useState<PlatformFilter>("all");
   const [sort, setSort] = useState<SortKey>("score-desc");
   const [page, setPage] = useState(1);
 
@@ -70,8 +63,9 @@ export default function ExplorerPage() {
       );
     }
 
-    if (filter !== "all") {
-      list = list.filter((a) => a.status === filter);
+    // Platform filter is simulated since mock data doesn't have platform field
+    if (platformFilter !== "all") {
+      // In production this would filter by actual platform
     }
 
     list = [...list].sort((a, b) => {
@@ -84,7 +78,7 @@ export default function ExplorerPage() {
     });
 
     return list;
-  }, [search, filter, sort]);
+  }, [search, platformFilter, sort]);
 
   const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
   const safePage = Math.min(page, totalPages);
@@ -95,42 +89,58 @@ export default function ExplorerPage() {
   return (
     <>
       <Navbar />
-      <main className="min-h-screen pt-24 px-6 max-w-6xl mx-auto pb-20">
+      <main className="min-h-screen pt-24 px-6 max-w-5xl mx-auto pb-20">
         {/* Header */}
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold">Trust Explorer</h1>
-          <p className="text-zinc-400 mt-1">Browse and search all checked agents</p>
-        </div>
+        <motion.div
+          className="mb-8"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.6 }}
+        >
+          <h1 className="font-heading text-3xl md:text-4xl font-bold tracking-tight">Trust Explorer</h1>
+          <p className="text-zinc-500 mt-2 text-sm">Browse and verify all registered agent identities</p>
+        </motion.div>
 
         {/* Search */}
-        <Input
-          className="mb-6"
-          placeholder="Search agents by name, ID, or capability…"
-          value={search}
-          onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-        />
+        <motion.div
+          initial={{ opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ delay: 0.1 }}
+        >
+          <Input
+            className="mb-6"
+            placeholder="Search agents by name or ID..."
+            value={search}
+            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+          />
+        </motion.div>
 
         {/* Filters + Sort */}
-        <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6">
+        <motion.div
+          className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 mb-6"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ delay: 0.2 }}
+        >
           <div className="flex flex-wrap gap-2">
-            {filters.map((f) => (
+            {platformFilters.map((f) => (
               <button
-                key={f.key}
-                onClick={() => { setFilter(f.key); setPage(1); }}
+                key={f}
+                onClick={() => { setPlatformFilter(f); setPage(1); }}
                 className={`px-4 py-1.5 rounded-full text-sm font-medium border transition-all duration-200 ${
-                  filter === f.key
-                    ? "bg-isnad-teal/20 text-isnad-teal border-isnad-teal/40"
-                    : "bg-white/5 text-zinc-400 border-white/10 hover:border-white/20"
+                  platformFilter === f
+                    ? "bg-isnad-teal/10 text-isnad-teal border-isnad-teal/30"
+                    : "bg-white/[0.02] text-zinc-500 border-white/[0.06] hover:border-white/[0.1] hover:text-zinc-300"
                 }`}
               >
-                {f.label}
+                {f === "all" ? "All Platforms" : f}
               </button>
             ))}
           </div>
           <select
             value={sort}
             onChange={(e) => setSort(e.target.value as SortKey)}
-            className="bg-white/5 border border-white/10 rounded-xl px-4 py-2 text-sm text-zinc-300 focus:outline-none focus:ring-2 focus:ring-isnad-teal/50"
+            className="bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-2 text-sm text-zinc-300 font-mono focus:outline-none focus:ring-1 focus:ring-isnad-teal/30"
           >
             {sorts.map((s) => (
               <option key={s.key} value={s.key} className="bg-zinc-900">
@@ -138,56 +148,63 @@ export default function ExplorerPage() {
               </option>
             ))}
           </select>
-        </div>
+        </motion.div>
 
         {/* Desktop Table */}
         <div className="hidden md:block">
-          <Card className="p-0 overflow-hidden">
+          <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl overflow-hidden">
             <table className="w-full text-sm">
               <thead>
-                <tr className="border-b border-[var(--card-border)] text-zinc-400">
-                  <th className="text-left px-6 py-4 font-medium">Agent</th>
-                  <th className="text-left px-6 py-4 font-medium">Score</th>
-                  <th className="text-left px-6 py-4 font-medium">Status</th>
-                  <th className="text-left px-6 py-4 font-medium">Top Category</th>
-                  <th className="text-right px-6 py-4 font-medium">Last Checked</th>
+                <tr className="border-b border-white/[0.06]">
+                  <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">Agent</th>
+                  <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">Platform</th>
+                  <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">Score</th>
+                  <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">Attestations</th>
+                  <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">Status</th>
+                  <th className="text-right px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">Last Checked</th>
                 </tr>
               </thead>
               <tbody>
                 <AnimatePresence mode="popLayout">
-                  {paginated.map((a, i) => (
-                    <motion.tr
-                      key={a.agent.id}
-                      initial={{ opacity: 0, y: 10 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ delay: i * 0.04 }}
-                      className="border-b border-[var(--card-border)] last:border-0 hover:bg-white/5 transition-colors"
-                    >
-                      <td className="px-6 py-4">
-                        <Link href={`/check/${a.agent.id}`} className="group">
-                          <span className="font-semibold text-[var(--foreground)] group-hover:text-isnad-teal transition-colors">
-                            {a.agent.name}
-                          </span>
-                          <span className="block text-xs text-zinc-500 font-mono mt-0.5">
-                            {a.agent.id}
-                          </span>
-                        </Link>
-                      </td>
-                      <td className="px-6 py-4">
-                        <Badge score={a.score.overall}>{a.score.overall}</Badge>
-                      </td>
-                      <td className={`px-6 py-4 font-medium ${statusLabel(a.status).cls}`}>
-                        {statusLabel(a.status).text}
-                      </td>
-                      <td className="px-6 py-4 text-zinc-300 text-xs">
-                        {topCategory(a.score.categories)}
-                      </td>
-                      <td className="px-6 py-4 text-right text-zinc-500">
-                        {relativeTime(a.lastChecked)}
-                      </td>
-                    </motion.tr>
-                  ))}
+                  {paginated.map((a, i) => {
+                    const sb = statusBadge(a.status);
+                    return (
+                      <motion.tr
+                        key={a.agent.id}
+                        initial={{ opacity: 0, y: 10 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0 }}
+                        transition={{ delay: i * 0.04 }}
+                        className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors"
+                      >
+                        <td className="px-6 py-4">
+                          <Link href={`/check/${a.agent.id}`} className="group">
+                            <span className="font-mono text-isnad-teal group-hover:text-isnad-teal-light transition-colors">
+                              {a.agent.name}
+                            </span>
+                            <span className="block text-[10px] text-zinc-600 font-mono mt-0.5">
+                              {a.agent.id}
+                            </span>
+                          </Link>
+                        </td>
+                        <td className="px-6 py-4 text-zinc-400 text-xs font-mono">
+                          ugig
+                        </td>
+                        <td className="px-6 py-4">
+                          <Badge score={a.score.overall}>{a.score.overall}</Badge>
+                        </td>
+                        <td className="px-6 py-4 font-mono text-zinc-400 text-sm tabular-nums">
+                          {attestationCount(a.score.overall)}
+                        </td>
+                        <td className="px-6 py-4">
+                          <Badge variant={sb.variant}>{sb.text}</Badge>
+                        </td>
+                        <td className="px-6 py-4 text-right text-zinc-600 text-xs font-mono">
+                          {relativeTime(a.lastChecked)}
+                        </td>
+                      </motion.tr>
+                    );
+                  })}
                 </AnimatePresence>
               </tbody>
             </table>
@@ -196,40 +213,40 @@ export default function ExplorerPage() {
                 No agents found matching your search
               </div>
             )}
-          </Card>
+          </div>
         </div>
 
         {/* Mobile Cards */}
-        <div className="md:hidden grid gap-4">
+        <div className="md:hidden grid gap-3">
           <AnimatePresence mode="popLayout">
-            {paginated.map((a, i) => (
-              <motion.div
-                key={a.agent.id}
-                initial={{ opacity: 0, y: 16 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0 }}
-                transition={{ delay: i * 0.06 }}
-              >
-                <Link href={`/check/${a.agent.id}`}>
-                  <Card className="flex flex-col gap-3 active:scale-[0.98] transition-transform">
-                    <div className="flex items-center justify-between">
-                      <div>
-                        <span className="font-semibold text-[var(--foreground)]">{a.agent.name}</span>
-                        <span className="block text-xs text-zinc-500 font-mono mt-0.5">{a.agent.id}</span>
+            {paginated.map((a, i) => {
+              const sb = statusBadge(a.status);
+              return (
+                <motion.div
+                  key={a.agent.id}
+                  initial={{ opacity: 0, y: 16 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ delay: i * 0.06 }}
+                >
+                  <Link href={`/check/${a.agent.id}`}>
+                    <Card className="active:scale-[0.98] transition-transform">
+                      <div className="flex items-center justify-between mb-3">
+                        <div>
+                          <span className="font-mono text-isnad-teal text-sm">{a.agent.name}</span>
+                          <span className="block text-[10px] text-zinc-600 font-mono mt-0.5">{a.agent.id}</span>
+                        </div>
+                        <Badge score={a.score.overall}>{a.score.overall}</Badge>
                       </div>
-                      <Badge score={a.score.overall}>{a.score.overall}</Badge>
-                    </div>
-                    <div className="flex items-center justify-between text-sm">
-                      <span className={`font-medium ${statusLabel(a.status).cls}`}>
-                        {statusLabel(a.status).text}
-                      </span>
-                      <span className="text-zinc-500 text-xs">{relativeTime(a.lastChecked)}</span>
-                    </div>
-                    <div className="text-xs text-zinc-400">{topCategory(a.score.categories)}</div>
-                  </Card>
-                </Link>
-              </motion.div>
-            ))}
+                      <div className="flex items-center justify-between text-sm">
+                        <Badge variant={sb.variant} className="text-xs">{sb.text}</Badge>
+                        <span className="text-zinc-600 text-xs font-mono">{relativeTime(a.lastChecked)}</span>
+                      </div>
+                    </Card>
+                  </Link>
+                </motion.div>
+              );
+            })}
           </AnimatePresence>
           {filtered.length === 0 && (
             <div className="py-16 text-center text-zinc-500">
@@ -240,9 +257,14 @@ export default function ExplorerPage() {
 
         {/* Pagination */}
         {filtered.length > 0 && (
-          <div className="mt-8 flex items-center justify-between">
-            <p className="text-sm text-zinc-500">
-              Showing {showStart}-{showEnd} of {filtered.length} agents
+          <motion.div
+            className="mt-8 flex items-center justify-between"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            <p className="text-xs text-zinc-600 font-mono">
+              {showStart}–{showEnd} of {filtered.length}
             </p>
             <div className="flex gap-2">
               <Button
@@ -251,18 +273,31 @@ export default function ExplorerPage() {
                 disabled={safePage <= 1}
                 onClick={() => setPage((p) => Math.max(1, p - 1))}
               >
-                Previous
+                ← Previous
               </Button>
+              {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPage(p)}
+                  className={`w-8 h-8 rounded-lg text-sm font-mono transition-all ${
+                    p === safePage
+                      ? 'bg-isnad-teal/10 text-isnad-teal border border-isnad-teal/30'
+                      : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.04]'
+                  }`}
+                >
+                  {p}
+                </button>
+              ))}
               <Button
                 variant="ghost"
                 size="sm"
                 disabled={safePage >= totalPages}
                 onClick={() => setPage((p) => p + 1)}
               >
-                Next
+                Next →
               </Button>
             </div>
-          </div>
+          </motion.div>
         )}
       </main>
     </>

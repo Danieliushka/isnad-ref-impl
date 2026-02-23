@@ -9,7 +9,11 @@ const Card = forwardRef<HTMLDivElement, CardProps>(
     return (
       <div
         ref={ref}
-        className={`bg-[var(--card-bg)] backdrop-blur-xl border border-[var(--card-border)] rounded-2xl p-6 transition-all duration-300 ${glow ? "hover:border-isnad-teal/30 hover:shadow-[0_0_30px_rgba(0,212,170,0.1)]" : ""} ${className}`}
+        className={`relative bg-white/[0.02] backdrop-blur-xl border border-white/[0.06] rounded-2xl p-6 transition-all duration-500 ${
+          glow
+            ? "hover:border-isnad-teal/20 hover:bg-white/[0.04] hover:shadow-[0_0_40px_-10px_rgba(0,212,170,0.12)]"
+            : ""
+        } ${className}`}
         {...props}
       >
         {children}

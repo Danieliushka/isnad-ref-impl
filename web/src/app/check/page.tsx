@@ -43,8 +43,13 @@ export default function CheckPage() {
                 <path d="M7 10l2 2 4-4" stroke="#00d4aa" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             </motion.div>
-            <h1 className="text-4xl font-bold mb-3">Check Agent Trust</h1>
-            <p className="text-zinc-400 text-lg">
+            <h1 className="font-heading text-4xl md:text-5xl font-bold tracking-tight mb-3">
+              Check Agent{' '}
+              <span className="bg-gradient-to-r from-isnad-teal via-isnad-teal-light to-accent bg-clip-text text-transparent">
+                Trust
+              </span>
+            </h1>
+            <p className="text-zinc-500 text-base leading-relaxed max-w-lg mx-auto">
               Verify the trust score, attestation chain, and risk profile of any AI agent.
             </p>
           </div>
@@ -57,10 +62,10 @@ export default function CheckPage() {
                 value={agentId}
                 onChange={(e) => setAgentId(e.target.value)}
                 onKeyDown={(e) => e.key === 'Enter' && handleCheck()}
-                className="text-lg py-4"
+                className="text-base py-4"
               />
               <Button onClick={handleCheck} size="lg" className="whitespace-nowrap">
-                Check Trust
+                Check Trust →
               </Button>
             </div>
           </Card>
@@ -72,7 +77,7 @@ export default function CheckPage() {
             animate={{ opacity: 1 }}
             transition={{ delay: 0.4 }}
           >
-            <h2 className="text-sm font-medium text-zinc-500 uppercase tracking-wider mb-4 text-center">
+            <h2 className="text-[10px] font-mono tracking-[0.2em] uppercase text-zinc-500 mb-4 text-center">
               Recently Checked
             </h2>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -87,7 +92,7 @@ export default function CheckPage() {
                     className="p-4 cursor-pointer hover:scale-[1.02] transition-transform text-center"
                     onClick={() => router.push(`/check/${agent.id}`)}
                   >
-                    <p className="font-medium text-sm mb-2">{agent.name}</p>
+                    <p className="font-mono text-isnad-teal text-sm mb-2">{agent.name}</p>
                     <Badge score={agent.score}>{agent.score}</Badge>
                   </Card>
                 </motion.div>

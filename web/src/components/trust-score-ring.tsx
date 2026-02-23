@@ -3,7 +3,7 @@
 import { motion } from 'framer-motion';
 
 interface TrustScoreRingProps {
-  score: number; // 0-100
+  score: number;
   size?: number;
   strokeWidth?: number;
   label?: string;
@@ -28,7 +28,7 @@ function getGrade(score: number): string {
 export default function TrustScoreRing({
   score,
   size = 200,
-  strokeWidth = 8,
+  strokeWidth = 6,
   label = 'Trust Score',
 }: TrustScoreRingProps) {
   const radius = (size - strokeWidth) / 2;
@@ -38,7 +38,10 @@ export default function TrustScoreRing({
   const grade = getGrade(score);
 
   return (
-    <div className="relative inline-flex items-center justify-center" style={{ width: size, height: size }}>
+    <div
+      className="relative inline-flex items-center justify-center shrink-0"
+      style={{ width: size, height: size }}
+    >
       <svg width={size} height={size} className="-rotate-90">
         {/* Background ring */}
         <circle
@@ -46,9 +49,8 @@ export default function TrustScoreRing({
           cy={size / 2}
           r={radius}
           fill="none"
-          stroke="currentColor"
+          stroke="rgba(255,255,255,0.04)"
           strokeWidth={strokeWidth}
-          className="text-zinc-800"
         />
         {/* Progress ring */}
         <motion.circle
@@ -63,13 +65,13 @@ export default function TrustScoreRing({
           initial={{ strokeDashoffset: circumference }}
           animate={{ strokeDashoffset: circumference - progress }}
           transition={{ duration: 1.5, ease: 'easeOut', delay: 0.3 }}
-          style={{ filter: `drop-shadow(0 0 6px ${color}40)` }}
+          style={{ filter: `drop-shadow(0 0 8px ${color}30)` }}
         />
       </svg>
       {/* Center text */}
       <div className="absolute inset-0 flex flex-col items-center justify-center">
         <motion.span
-          className="text-4xl font-bold font-mono"
+          className="text-4xl font-bold font-mono tabular-nums"
           style={{ color }}
           initial={{ opacity: 0, scale: 0.5 }}
           animate={{ opacity: 1, scale: 1 }}
@@ -78,7 +80,7 @@ export default function TrustScoreRing({
           {score}
         </motion.span>
         <motion.span
-          className="text-lg font-semibold mt-1"
+          className="text-lg font-semibold mt-0.5"
           style={{ color }}
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
@@ -87,7 +89,7 @@ export default function TrustScoreRing({
           {grade}
         </motion.span>
         <motion.span
-          className="text-xs text-zinc-500 mt-1"
+          className="text-[10px] text-zinc-600 mt-1 tracking-wider uppercase"
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           transition={{ delay: 1.5 }}

@@ -48,10 +48,14 @@ export default function ApiTabs() {
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.6 }}
-          className="text-center mb-10"
+          className="text-center mb-12"
         >
-          <h2 className="text-3xl md:text-4xl font-bold mb-4">Integrate in Minutes</h2>
-          <p className="text-zinc-400">REST API, Python SDK, or plain cURL — your choice</p>
+          <h2 className="font-heading text-3xl md:text-4xl font-bold tracking-tight mb-4">
+            Integrate in Minutes
+          </h2>
+          <p className="text-zinc-500">
+            REST API, Python SDK, or plain cURL — your choice
+          </p>
         </motion.div>
 
         <motion.div
@@ -60,24 +64,37 @@ export default function ApiTabs() {
           viewport={{ once: true }}
           transition={{ duration: 0.6, delay: 0.2 }}
         >
-          <div className="flex gap-1 mb-4">
+          {/* Tab buttons */}
+          <div className="flex gap-1 mb-1 px-1">
             {tabs.map((t, i) => (
               <button
                 key={t.label}
                 onClick={() => setActive(i)}
-                className={`px-4 py-2 text-sm rounded-lg font-medium transition-colors ${
+                className={`relative px-4 py-2 text-xs font-mono tracking-wide rounded-t-lg transition-all duration-200 cursor-pointer ${
                   active === i
-                    ? 'bg-isnad-teal text-surface-dark'
-                    : 'text-zinc-400 hover:text-zinc-200 hover:bg-white/5'
+                    ? 'text-isnad-teal bg-[#0c0d12]'
+                    : 'text-zinc-600 hover:text-zinc-400'
                 }`}
               >
                 {t.label}
+                {active === i && (
+                  <motion.div
+                    layoutId="activeTab"
+                    className="absolute bottom-0 left-0 right-0 h-px bg-isnad-teal"
+                    transition={{ duration: 0.2 }}
+                  />
+                )}
               </button>
             ))}
           </div>
-          <div className="bg-zinc-950 border border-zinc-800 rounded-xl p-6 overflow-x-auto">
-            <pre className="text-sm font-mono text-zinc-300 leading-relaxed whitespace-pre">
-              {tabs[active].code}
+
+          {/* Code block */}
+          <div className="relative bg-[#0c0d12] border border-white/[0.06] rounded-xl rounded-tl-none overflow-hidden">
+            <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-isnad-teal/40 via-accent/20 to-transparent" />
+            <pre className="p-6 overflow-x-auto">
+              <code className="text-sm font-mono text-zinc-400 leading-relaxed">
+                {tabs[active].code}
+              </code>
             </pre>
           </div>
         </motion.div>
