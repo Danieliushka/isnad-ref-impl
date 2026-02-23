@@ -49,11 +49,12 @@ export interface CreateIdentityResponse {
 }
 
 export async function createIdentity(
-  _data: CreateIdentityRequest
+  data: CreateIdentityRequest
 ): Promise<CreateIdentityResponse> {
   const res = await fetch(`${LEGACY_API}/identities`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
   });
   if (!res.ok) {
     const err = await res.text();

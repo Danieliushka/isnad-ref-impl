@@ -42,7 +42,7 @@ function statusBadge(s: AgentStatus) {
 }
 
 function attestationCount(overall: number): number {
-  return Math.floor(overall * 0.15 + Math.random() * 3);
+  return Math.floor(overall * 0.15 + (overall % 7));
 }
 
 export default function ExplorerPage() {

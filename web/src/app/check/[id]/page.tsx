@@ -88,10 +88,10 @@ export default function TrustReportPage() {
     value,
   }));
 
-  // Generate simulated breakdown scores based on overall score
-  const breakdownScores = scoreBreakdown.map((b) => ({
+  // Generate deterministic breakdown scores based on overall score and weight
+  const breakdownScores = scoreBreakdown.map((b, i) => ({
     ...b,
-    score: Math.min(1, Math.max(0.1, (score.overall / 100) + (Math.random() * 0.2 - 0.1))),
+    score: Math.min(1, Math.max(0.1, (score.overall / 100) + (((i * 17 + b.weight) % 20) - 10) / 100)),
   }));
 
   const embedCode = `<img src="https://isnad.network/badge/${id}" alt="${agent.name} trust badge" />`;

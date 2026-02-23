@@ -258,7 +258,7 @@ function CodeBlock({ children, language = "" }: { children: string; language?: s
   };
   return (
     <div className="relative group">
-      <pre className="bg-[#0d1117] border border-white/10 rounded-xl p-4 overflow-x-auto text-sm leading-relaxed" style={{ fontFamily: "'JetBrains Mono', monospace" }}>
+      <pre className="bg-[#0d1117] border border-white/10 rounded-xl p-4 overflow-x-auto text-sm leading-relaxed font-mono">
         <code className="text-zinc-300">{children}</code>
       </pre>
       <button
@@ -365,7 +365,7 @@ export default function DocsPage() {
           <div className="flex-1 min-w-0 space-y-16">
             {/* Header */}
             <div>
-              <h1 className="text-4xl font-bold mb-3">API Documentation</h1>
+              <h1 className="font-heading text-4xl md:text-5xl font-bold tracking-tight mb-3">API Documentation</h1>
               <p className="text-zinc-400 text-lg">
                 Everything you need to integrate isnad trust verification into your application.
               </p>
@@ -381,7 +381,7 @@ export default function DocsPage() {
 
             {/* Quick Start */}
             <section id="quick-start" className="scroll-mt-24 space-y-6">
-              <h2 className="text-2xl font-bold">Quick Start</h2>
+              <h2 className="font-heading text-2xl md:text-3xl font-bold tracking-tight">Quick Start</h2>
               <div className="grid gap-4">
                 {[
                   {
@@ -422,7 +422,7 @@ export default function DocsPage() {
 
             {/* Authentication */}
             <section id="authentication" className="scroll-mt-24 space-y-4">
-              <h2 className="text-2xl font-bold">Authentication</h2>
+              <h2 className="font-heading text-2xl md:text-3xl font-bold tracking-tight">Authentication</h2>
               <Card glow={false} className="space-y-3">
                 <p className="text-zinc-400 text-sm">
                   Public endpoints (<code className="text-isnad-teal">/check</code>, <code className="text-isnad-teal">/explorer</code>, <code className="text-isnad-teal">/stats</code>, <code className="text-isnad-teal">/health</code>) require no authentication.
@@ -439,7 +439,7 @@ export default function DocsPage() {
 
             {/* Endpoints Reference */}
             <section id="endpoints" className="scroll-mt-24 space-y-8">
-              <h2 className="text-2xl font-bold">Endpoints Reference</h2>
+              <h2 className="font-heading text-2xl md:text-3xl font-bold tracking-tight">Endpoints Reference</h2>
               {endpoints.map((ep) => (
                 <EndpointCard key={ep.path + ep.method} ep={ep} />
               ))}
@@ -447,7 +447,7 @@ export default function DocsPage() {
 
             {/* Rate Limits */}
             <section id="rate-limits" className="scroll-mt-24 space-y-4">
-              <h2 className="text-2xl font-bold">Rate Limits</h2>
+              <h2 className="font-heading text-2xl md:text-3xl font-bold tracking-tight">Rate Limits</h2>
               <Card glow={false} className="space-y-3">
                 <p className="text-zinc-400 text-sm">
                   Default rate limit: <span className="text-zinc-200 font-semibold">60 requests/minute</span> per IP, with a burst allowance of 10 requests.
@@ -463,7 +463,7 @@ export default function DocsPage() {
 
             {/* SDKs */}
             <section id="sdks" className="scroll-mt-24 space-y-6">
-              <h2 className="text-2xl font-bold">SDKs &amp; Examples</h2>
+              <h2 className="font-heading text-2xl md:text-3xl font-bold tracking-tight">SDKs &amp; Examples</h2>
               <SdkTabs />
             </section>
           </div>
