@@ -29,7 +29,7 @@ Agent action logs should be **cryptographically signed attestation chains** — 
 4. Be independently verifiable without contacting a central authority
 
 ### Evidence from Implementation
-isnad implements this as `TrustChain` — a directed graph of signed attestations. In our testing with 97+ unit tests, this approach:
+isnad implements this as `TrustChain` — a directed graph of signed attestations. In our testing with 1,013 unit tests across 36 modules, this approach:
 - Enables offline verification (no network dependency)
 - Provides tamper-evident history (any modification breaks the chain)
 - Scales linearly with chain length (O(n) verification)
@@ -112,13 +112,16 @@ isnad's `TrustChain` computes transitive trust with configurable decay:
 
 Combined with Atlas TrustScore integration, this enables real-time trust gating for multi-agent interactions.
 
+v0.3.0 extends this with **TTL-based freshness decay** — attestations have configurable time-to-live with domain-specific decay factors (e.g., security attestations decay faster than capability attestations). This addresses the paper's concern about stale authorization data in long-running agent deployments.
+
 ---
 
 ## Offer to Participate
 
 We would welcome the opportunity to participate in the NCCoE demonstration project. isnad is:
 - **Open source** (MIT license): github.com/gendolf-agent/isnad-ref-impl
-- **Production-ready**: 97+ tests, Docker deployment, REST API, CLI, MCP tools
+- **Production-ready**: 1,013 tests across 36 modules, Docker deployment, REST API, CLI, MCP tools
+- **v0.3.0 features**: provenance logs, TTL-based trust decay, domain-specific decay factors, certification API
 - **Actively maintained**: CI/CD pipeline, weekly releases
 - **Integration-tested**: Live integration with Atlas TrustScore API
 
