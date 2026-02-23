@@ -13,12 +13,15 @@ Public endpoints (no auth required):
 from __future__ import annotations
 
 import hashlib
+import secrets
 import time
+from contextlib import asynccontextmanager
 from datetime import datetime, timezone, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, FastAPI, HTTPException, Query, Request, Response
+from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response, Security
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from isnad.core import AgentIdentity, Attestation, TrustChain, RevocationRegistry
@@ -88,6 +91,20 @@ class StatsResponse(BaseModel):
     uptime: float
 
 
+class ApiKeyRequest(BaseModel):
+    """Request body for API key generation."""
+    owner_email: str
+    rate_limit: int = 100
+
+
+class ApiKeyResponse(BaseModel):
+    """Response with the generated API key (shown only once)."""
+    api_key: str
+    owner_email: str
+    rate_limit: int
+    message: str = "Store this key securely — it won't be shown again."
+
+
 class HealthResponse(BaseModel):
     """Health-check payload."""
     status: str = "ok"
@@ -127,6 +144,54 @@ def configure(
         _revocation_registry = revocation_registry
     if db is not None:
         _db = db
+
+
+# ---------------------------------------------------------------------------
+# API Key Auth
+# ---------------------------------------------------------------------------
+
+_api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
+
+
+async def require_api_key(api_key: str = Security(_api_key_header)) -> dict:
+    """Dependency that validates the X-API-Key header against the database."""
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Missing API key")
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+    key_record = await _db.validate_api_key(api_key)
+    if key_record is None:
+        raise HTTPException(status_code=403, detail="Invalid API key")
+    return key_record
+
+
+# ---------------------------------------------------------------------------
+# Lifespan
+# ---------------------------------------------------------------------------
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Initialize DB on startup, close on shutdown."""
+    global _db
+    if _db is None:
+        try:
+            from isnad.database import Database
+            _db = Database("isnad.db")
+            await _db.connect()
+        except Exception:
+            pass  # DB optional
+    # Migrate in-memory data on first run
+    if _db is not None and _identities:
+        try:
+            await _db.migrate_from_memory(_identities, _trust_chain, _revocation_registry)
+        except Exception:
+            pass
+    yield
+    if _db is not None:
+        try:
+            await _db.close()
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------------------
@@ -306,6 +371,16 @@ async def health():
     return HealthResponse()
 
 
+@router.post("/keys", response_model=ApiKeyResponse)
+async def create_api_key(body: ApiKeyRequest):
+    """Generate a new API key. The raw key is returned once; only its hash is stored."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+    raw_key = f"isnad_{secrets.token_urlsafe(32)}"
+    await _db.create_api_key(raw_key, body.owner_email, body.rate_limit)
+    return ApiKeyResponse(api_key=raw_key, owner_email=body.owner_email, rate_limit=body.rate_limit)
+
+
 @router.get("/stats", response_model=StatsResponse)
 async def stats():
     """Platform-wide statistics."""
@@ -478,12 +553,14 @@ async def explorer_detail(agent_id: str):
 # App factory (convenience — can also just include the router in an existing app)
 # ---------------------------------------------------------------------------
 
-def create_app(*, allowed_origins: list[str] | None = None) -> FastAPI:
+def create_app(*, allowed_origins: list[str] | None = None,
+               use_lifespan: bool = True) -> FastAPI:
     """Create a standalone FastAPI app with the v1 router and middlewares."""
     app = FastAPI(
         title="isnad API",
         description="Agent Trust Protocol — v1 API",
         version="0.3.0",
+        lifespan=lifespan if use_lifespan else None,
     )
     add_middlewares(app, allowed_origins=allowed_origins)
     app.include_router(router)
