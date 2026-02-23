@@ -1,145 +1,261 @@
-"use client";
+'use client';
 
-import { Navbar } from "@/components/ui/navbar";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import TrustScoreRing from "@/components/trust-score-ring";
-import RadarChart from "@/components/radar-chart";
-import { useParams } from "next/navigation";
+import { Navbar } from '@/components/ui/navbar';
+import { Card } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import TrustScoreRing from '@/components/trust-score-ring';
+import RadarChart from '@/components/radar-chart';
+import {
+  getAgentById,
+  getGrade,
+  mockAgents,
+  mockAttestations,
+  defaultAttestations,
+  mockRiskFlags,
+  type ExplorerAgent,
+  type AttestationEntry,
+} from '@/lib/mock-data';
+import { useParams } from 'next/navigation';
+import { motion } from 'framer-motion';
+import { useState } from 'react';
 
-// Mock data — will be replaced with API call
-const mockReport = {
-  overall_score: 82,
-  confidence: "high" as const,
-  risk_flags: ["Behavioral anomaly detected in last 24h"],
-  attestation_count: 34,
-  last_checked: new Date().toISOString(),
-  categories: [
-    { name: "Identity", score: 95, modules_passed: 6, modules_total: 6, findings: [] },
-    { name: "Behavior", score: 72, modules_passed: 5, modules_total: 6, findings: ["Minor anomaly in response pattern"] },
-    { name: "Provenance", score: 88, modules_passed: 5, modules_total: 6, findings: [] },
-    { name: "Security", score: 91, modules_passed: 6, modules_total: 6, findings: [] },
-    { name: "Compliance", score: 68, modules_passed: 4, modules_total: 6, findings: ["Missing data retention policy"] },
-    { name: "Performance", score: 78, modules_passed: 5, modules_total: 6, findings: [] },
-  ],
-  certified: true,
-  certification_id: "cert-2026-02-23-a8f3",
+const container = {
+  hidden: { opacity: 0 },
+  show: { opacity: 1, transition: { staggerChildren: 0.12 } },
+};
+const item = {
+  hidden: { opacity: 0, y: 16 },
+  show: { opacity: 1, y: 0, transition: { duration: 0.5 } },
 };
 
-function confidenceColor(c: string) {
-  if (c === "high") return "text-emerald-400";
-  if (c === "medium") return "text-yellow-400";
-  return "text-red-400";
+const categoryLabels: Record<string, string> = {
+  identity: 'Identity Verification',
+  attestation: 'Attestation Chain',
+  behavioral: 'Behavioral Analysis',
+  platform: 'Platform Presence',
+  transactions: 'Transaction History',
+  security: 'Security Posture',
+};
+
+function barColor(value: number): string {
+  if (value >= 0.8) return 'bg-emerald-500';
+  if (value >= 0.6) return 'bg-yellow-500';
+  return 'bg-red-500';
 }
 
-function categoryBarColor(score: number) {
-  if (score >= 80) return "bg-emerald-500";
-  if (score >= 60) return "bg-yellow-500";
-  return "bg-red-500";
+function barGlow(value: number): string {
+  if (value >= 0.8) return 'shadow-emerald-500/30';
+  if (value >= 0.6) return 'shadow-yellow-500/30';
+  return 'shadow-red-500/30';
+}
+
+function statusBadgeVariant(status: string): 'success' | 'warning' | 'danger' {
+  if (status === 'certified') return 'success';
+  if (status === 'pending') return 'warning';
+  return 'danger';
+}
+
+function statusLabel(status: string): string {
+  if (status === 'certified') return 'Certified';
+  if (status === 'pending') return 'Pending';
+  return 'Failed';
 }
 
 export default function TrustReportPage() {
   const params = useParams();
-  const id = typeof params.id === "string" ? decodeURIComponent(params.id) : "unknown";
-  const report = mockReport;
-  const radarCategories = report.categories.map((c) => ({ label: c.name, value: c.score / 100 }));
+  const id = typeof params.id === 'string' ? decodeURIComponent(params.id) : 'unknown';
+
+  const agentData: ExplorerAgent = getAgentById(id) ?? mockAgents[0];
+  const { agent, score, status } = agentData;
+  const grade = getGrade(score.overall);
+  const attestations: AttestationEntry[] = mockAttestations[id] ?? defaultAttestations;
+  const riskFlags: string[] = mockRiskFlags[id] ?? [];
+
+  const [showEmbed, setShowEmbed] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const radarCategories = (Object.entries(score.categories) as [string, number][]).map(([key, value]) => ({
+    label: categoryLabels[key] ?? key,
+    value,
+  }));
+
+  const embedCode = `<img src="https://isnad.network/badge/${id}" alt="${agent.name} trust badge" />`;
+
+  function copyEmbed() {
+    navigator.clipboard.writeText(embedCode).then(() => {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    });
+  }
+
+  function shareReport() {
+    if (navigator.share) {
+      navigator.share({ title: `${agent.name} Trust Report`, url: window.location.href });
+    } else {
+      navigator.clipboard.writeText(window.location.href);
+    }
+  }
 
   return (
     <>
       <Navbar />
       <main className="min-h-screen pt-24 px-6 max-w-5xl mx-auto pb-20">
-        {/* Header */}
-        <div className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
-          <div>
-            <h1 className="text-3xl font-bold">Trust Report</h1>
-            <p className="font-mono text-isnad-teal text-lg mt-1">{id}</p>
-          </div>
-          {report.certified && (
-            <div className="flex items-center gap-2 bg-emerald-500/10 border border-emerald-500/30 rounded-lg px-4 py-2">
-              <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
-                <path d="M10 2L3 6v5c0 4 3 7 7 8 4-1 7-4 7-8V6L10 2z" stroke="#10b981" strokeWidth="1.5" fill="none" />
-                <path d="M7 10l2 2 4-4" stroke="#10b981" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-              </svg>
-              <span className="text-emerald-400 text-sm font-medium">Certified</span>
-              <span className="text-zinc-500 text-xs font-mono">{report.certification_id}</span>
+        <motion.div variants={container} initial="hidden" animate="show">
+          {/* Header */}
+          <motion.div variants={item} className="flex flex-col md:flex-row items-start md:items-center justify-between gap-4 mb-8">
+            <div>
+              <h1 className="text-3xl font-bold">{agent.name}</h1>
+              <p className="font-mono text-isnad-teal text-sm mt-1">{agent.id} · {agent.publicKey}</p>
+              <p className="text-zinc-500 text-sm mt-1">Checked 3 seconds ago</p>
             </div>
-          )}
-        </div>
+            <Badge variant={statusBadgeVariant(status)}>{statusLabel(status)}</Badge>
+          </motion.div>
 
-        {/* Score + Radar */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-          <Card className="flex flex-col items-center justify-center py-8">
-            <TrustScoreRing score={report.overall_score} size={180} />
-            <div className="mt-4 text-center">
-              <div className="text-sm text-zinc-400">
-                Confidence:{" "}
-                <span className={`font-medium ${confidenceColor(report.confidence)}`}>
-                  {report.confidence}
-                </span>
-              </div>
-              <div className="text-sm text-zinc-400 mt-1">
-                {report.attestation_count} attestations verified
-              </div>
-            </div>
-          </Card>
-
-          <Card className="flex items-center justify-center py-8">
-            <RadarChart categories={radarCategories} size={280} />
-          </Card>
-        </div>
-
-        {/* Risk Flags */}
-        {report.risk_flags.length > 0 && (
-          <Card className="mb-6 border-yellow-500/30 bg-yellow-500/5">
-            <h2 className="text-lg font-semibold text-yellow-400 mb-3">⚠ Risk Flags</h2>
-            <ul className="space-y-1">
-              {report.risk_flags.map((flag, i) => (
-                <li key={i} className="text-sm text-zinc-300 flex items-start gap-2">
-                  <span className="text-yellow-400 mt-0.5">•</span>
-                  {flag}
-                </li>
-              ))}
-            </ul>
-          </Card>
-        )}
-
-        {/* Category Breakdown */}
-        <Card>
-          <h2 className="text-lg font-semibold mb-6">Category Breakdown</h2>
-          <div className="space-y-4">
-            {report.categories.map((cat) => (
-              <div key={cat.name}>
-                <div className="flex items-center justify-between mb-1.5">
-                  <div className="flex items-center gap-3">
-                    <span className="font-medium text-sm">{cat.name}</span>
-                    <span className="text-xs text-zinc-500">
-                      {cat.modules_passed}/{cat.modules_total} modules
+          {/* Score + Radar — 2 column */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+            <motion.div variants={item}>
+              <Card className="flex flex-col items-center justify-center py-10">
+                <TrustScoreRing score={score.overall} size={220} />
+                <div className="mt-4 text-center">
+                  <span className="text-2xl font-bold text-zinc-300">{grade}</span>
+                  <p className="text-sm text-zinc-500 mt-1">
+                    Confidence:{' '}
+                    <span className={score.confidence === 'high' ? 'text-emerald-400' : score.confidence === 'medium' ? 'text-yellow-400' : 'text-red-400'}>
+                      {score.confidence}
                     </span>
-                  </div>
-                  <Badge score={cat.score}>{cat.score}</Badge>
+                  </p>
                 </div>
-                <div className="h-2 bg-zinc-800 rounded-full overflow-hidden">
-                  <div
-                    className={`h-full rounded-full transition-all ${categoryBarColor(cat.score)}`}
-                    style={{ width: `${cat.score}%` }}
-                  />
-                </div>
-                {cat.findings.length > 0 && (
-                  <div className="mt-1.5 text-xs text-zinc-500">
-                    {cat.findings.map((f, i) => (
-                      <span key={i}>↳ {f}</span>
-                    ))}
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </Card>
+              </Card>
+            </motion.div>
 
-        {/* Metadata */}
-        <div className="mt-6 text-center text-sm text-zinc-500">
-          Last checked: {new Date(report.last_checked).toLocaleString()} · Report generated by isnad v0.3.0
-        </div>
+            <motion.div variants={item}>
+              <Card className="flex items-center justify-center py-10">
+                <RadarChart categories={radarCategories} size={280} />
+              </Card>
+            </motion.div>
+          </div>
+
+          {/* Category Breakdown */}
+          <motion.div variants={item}>
+            <Card className="mb-8">
+              <h2 className="text-lg font-semibold mb-6">Category Breakdown</h2>
+              <div className="space-y-4">
+                {(Object.entries(score.categories) as [string, number][]).map(([key, value]) => (
+                  <div key={key}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="font-medium text-sm text-zinc-300">{categoryLabels[key]}</span>
+                      <span className="text-sm font-mono text-zinc-400">{(value * 100).toFixed(0)}</span>
+                    </div>
+                    <div className="h-2.5 bg-zinc-800 rounded-full overflow-hidden">
+                      <motion.div
+                        className={`h-full rounded-full shadow-sm ${barColor(value)} ${barGlow(value)}`}
+                        initial={{ width: 0 }}
+                        animate={{ width: `${value * 100}%` }}
+                        transition={{ duration: 1, delay: 0.3, ease: 'easeOut' }}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </Card>
+          </motion.div>
+
+          {/* Risk Flags */}
+          <motion.div variants={item}>
+            <Card className={`mb-8 ${riskFlags.length > 0 ? 'border-yellow-500/30 bg-yellow-500/5' : 'border-emerald-500/20 bg-emerald-500/5'}`}>
+              <h2 className="text-lg font-semibold mb-3">
+                {riskFlags.length > 0 ? '⚠ Risk Flags' : '✓ Risk Assessment'}
+              </h2>
+              {riskFlags.length > 0 ? (
+                <ul className="space-y-2">
+                  {riskFlags.map((flag: string, i: number) => (
+                    <li key={i} className="text-sm text-zinc-300 flex items-start gap-2">
+                      <span className="text-yellow-400 mt-0.5">•</span>
+                      {flag}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="text-sm text-emerald-400">No risk flags detected ✓</p>
+              )}
+            </Card>
+          </motion.div>
+
+          {/* Attestation History */}
+          <motion.div variants={item}>
+            <Card className="mb-8">
+              <h2 className="text-lg font-semibold mb-6">Attestation History</h2>
+              <div className="relative">
+                <div className="absolute left-3 top-2 bottom-2 w-px bg-zinc-700" />
+                <div className="space-y-6">
+                  {attestations.map((att: AttestationEntry, i: number) => (
+                    <motion.div
+                      key={i}
+                      className="flex items-start gap-4 pl-8 relative"
+                      initial={{ opacity: 0, x: -10 }}
+                      animate={{ opacity: 1, x: 0 }}
+                      transition={{ delay: 0.8 + i * 0.1 }}
+                    >
+                      <div className={`absolute left-1.5 top-1.5 w-3 h-3 rounded-full border-2 ${att.score >= 80 ? 'border-emerald-500 bg-emerald-500/20' : att.score >= 60 ? 'border-yellow-500 bg-yellow-500/20' : 'border-red-500 bg-red-500/20'}`} />
+                      <div className="flex-1">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <span className="text-sm font-medium text-zinc-200">{att.task}</span>
+                            <span className="text-xs text-zinc-500 ml-2">by {att.witness}</span>
+                          </div>
+                          <Badge score={att.score}>{att.score}</Badge>
+                        </div>
+                        <p className="text-xs text-zinc-500 mt-1">
+                          {new Date(att.date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </p>
+                      </div>
+                    </motion.div>
+                  ))}
+                </div>
+              </div>
+            </Card>
+          </motion.div>
+
+          {/* Actions */}
+          <motion.div variants={item}>
+            <Card className="mb-8">
+              <h2 className="text-lg font-semibold mb-4">Actions</h2>
+              <div className="flex flex-wrap gap-3">
+                <Button variant="primary" onClick={() => setShowEmbed(!showEmbed)}>
+                  Get Badge
+                </Button>
+                <Button variant="secondary" onClick={shareReport}>
+                  Share Report
+                </Button>
+                <Button variant="ghost" onClick={() => window.location.reload()}>
+                  Re-check
+                </Button>
+              </div>
+
+              {showEmbed && (
+                <motion.div
+                  className="mt-4 p-4 bg-zinc-900 rounded-xl border border-zinc-700"
+                  initial={{ opacity: 0, height: 0 }}
+                  animate={{ opacity: 1, height: 'auto' }}
+                >
+                  <p className="text-xs text-zinc-500 mb-2">Embed this badge on your site:</p>
+                  <code className="block text-sm text-isnad-teal font-mono break-all bg-black/30 p-3 rounded-lg">
+                    {embedCode}
+                  </code>
+                  <Button size="sm" variant="ghost" className="mt-2" onClick={copyEmbed}>
+                    {copied ? '✓ Copied' : 'Copy'}
+                  </Button>
+                </motion.div>
+              )}
+            </Card>
+          </motion.div>
+
+          {/* Footer */}
+          <motion.div variants={item} className="text-center text-sm text-zinc-500">
+            Report generated by isnad v0.3.0 · {new Date().toLocaleDateString()}
+          </motion.div>
+        </motion.div>
       </main>
     </>
   );
