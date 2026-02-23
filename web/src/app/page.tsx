@@ -124,16 +124,22 @@ export default function HomePage() {
       <Navbar />
 
       {/* Hero */}
-      <HeroSection />
+      <section id="hero">
+        <HeroSection />
+      </section>
 
       {/* Live Check Widget */}
-      <LiveCheckWidget />
+      <section id="live-check">
+        <LiveCheckWidget />
+      </section>
 
       {/* Stats Bar */}
-      <StatsBar />
+      <section id="stats">
+        <StatsBar />
+      </section>
 
       {/* How It Works */}
-      <AnimatedSection className="py-24 px-6">
+      <AnimatedSection id="how-it-works" className="py-24 px-6">
         <div className="max-w-5xl mx-auto">
           <h2 className="text-3xl md:text-4xl font-bold text-center mb-16">How It Works</h2>
           <div className="grid grid-cols-1 md:grid-cols-3 gap-10">
@@ -150,7 +156,7 @@ export default function HomePage() {
       </AnimatedSection>
 
       {/* Features Grid */}
-      <AnimatedSection className="py-24 px-6">
+      <AnimatedSection id="features" className="py-24 px-6">
         <div className="max-w-5xl mx-auto">
           <h2 className="text-3xl md:text-4xl font-bold text-center mb-16">Features</h2>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -168,7 +174,7 @@ export default function HomePage() {
       </AnimatedSection>
 
       {/* Trust Explorer Preview */}
-      <AnimatedSection className="py-24 px-6">
+      <AnimatedSection id="explorer" className="py-24 px-6">
         <div className="max-w-4xl mx-auto">
           <h2 className="text-3xl md:text-4xl font-bold text-center mb-4">Trust Explorer</h2>
           <p className="text-zinc-400 text-center mb-10">Live agent trust scores, updated in real time</p>
@@ -208,7 +214,7 @@ export default function HomePage() {
       <ApiTabs />
 
       {/* CTA */}
-      <AnimatedSection className="py-24 px-6">
+      <AnimatedSection id="cta" className="py-24 px-6">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="text-3xl md:text-4xl font-bold mb-4">Start Verifying Agents Today</h2>
           <p className="text-zinc-400 mb-8">Free tier available. No credit card required.</p>
@@ -224,7 +230,7 @@ export default function HomePage() {
       </AnimatedSection>
 
       {/* Footer */}
-      <footer className="border-t border-[var(--card-border)] py-12 px-6">
+      <footer id="footer" className="border-t border-[var(--card-border)] py-12 px-6">
         <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
           <div className="text-xl font-bold text-isnad-teal">isnad</div>
           <nav className="flex gap-6 text-sm text-zinc-400">
