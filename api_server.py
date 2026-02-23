@@ -14,6 +14,7 @@ from typing import Optional
 import time
 
 from isnad import AgentIdentity, Attestation, TrustChain
+from isnad.api_v1 import router as v1_router, configure as configure_v1
 
 app = FastAPI(
     title="Isnad Trust Protocol API",
@@ -84,7 +85,12 @@ class ImportChainRequest(BaseModel):
     identities: dict[str, str] = Field(default_factory=dict, description="agent_id → public_key_hex map")
 
 
-# ─── Endpoints ─────────────────────────────────────────────────────
+# ─── V1 Router ─────────────────────────────────────────────────────
+
+configure_v1(identities=_identities, trust_chain=_chain)
+app.include_router(v1_router)
+
+# ─── Legacy Endpoints ──────────────────────────────────────────────
 
 @app.get("/health")
 async def health():
