@@ -38,12 +38,12 @@ const categoryLabels: Record<string, string> = {
   security: 'Security Posture',
 };
 
-// Score breakdown weights for the trust algorithm
+// Score breakdown weights for the trust algorithm v2
 const scoreBreakdown = [
-  { key: 'relationship_graph', label: 'Relationship Graph', weight: 35 },
-  { key: 'activity_rhythm', label: 'Activity Rhythm', weight: 25 },
-  { key: 'topic_drift', label: 'Topic Drift', weight: 20 },
-  { key: 'writing_fingerprint', label: 'Writing Fingerprint', weight: 20 },
+  { key: 'platform_reputation', label: 'Platform Reputation', weight: 40, description: 'Ratings & reviews across marketplaces' },
+  { key: 'delivery_track_record', label: 'Delivery Track Record', weight: 30, description: 'Job completion rate, disputes' },
+  { key: 'identity_verification', label: 'Identity Verification', weight: 15, description: 'Profile completeness, account age' },
+  { key: 'cross_platform_consistency', label: 'Cross-Platform Consistency', weight: 15, description: 'Presence across multiple platforms' },
 ];
 
 function barColor(value: number): string {
@@ -157,18 +157,21 @@ export default function TrustReportPage() {
           {/* Score Breakdown (algorithm weights) */}
           <motion.div variants={item}>
             <Card className="mb-4">
-              <h2 className="font-heading text-lg font-semibold mb-1 text-zinc-200">Score Breakdown</h2>
-              <p className="text-[10px] font-mono tracking-[0.15em] uppercase text-zinc-600 mb-6">Algorithm weight distribution</p>
+              <h2 className="font-heading text-lg font-semibold mb-1 text-zinc-200">Trust Score v2</h2>
+              <p className="text-[10px] font-mono tracking-[0.15em] uppercase text-zinc-600 mb-6">Real platform data · Verifiable signals</p>
               <div className="space-y-4">
                 {breakdownScores.map((b) => (
                   <div key={b.key}>
-                    <div className="flex items-center justify-between mb-1.5">
+                    <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-3">
                         <span className="text-sm font-medium text-zinc-300">{b.label}</span>
                         <span className="text-[10px] font-mono text-zinc-600 tracking-wide">{b.weight}%</span>
                       </div>
                       <span className="text-sm font-mono text-isnad-teal tabular-nums">{(b.score * 100).toFixed(0)}</span>
                     </div>
+                    {'description' in b && (
+                      <p className="text-[11px] text-zinc-600 mb-1.5">{(b as { description?: string }).description}</p>
+                    )}
                     <div className="h-2 bg-white/[0.04] rounded-full overflow-hidden">
                       <motion.div
                         className={`h-full rounded-full shadow-sm ${barColor(b.score)} ${barGlow(b.score)}`}
@@ -300,7 +303,7 @@ export default function TrustReportPage() {
 
           {/* Footer */}
           <motion.div variants={item} className="text-center text-xs text-zinc-600 font-mono">
-            isnad v0.3.0 · {new Date().toLocaleDateString()}
+            isnad v0.4.0 · TrustScore v2 · {new Date().toLocaleDateString()}
           </motion.div>
         </motion.div>
       </main>
