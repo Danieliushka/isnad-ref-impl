@@ -1,0 +1,48 @@
+version: "3.8"
+
+services:
+  # ── isnad FastAPI (src/isnad/api.py) ──
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8420:8420"
+    healthcheck:
+      test: ["CMD", "curl", "-sf", "http://localhost:8420/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    environment:
+      - ISNAD_HOST=0.0.0.0
+      - ISNAD_PORT=8420
+
+  # ── Next.js web frontend ──
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8088:3000"
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      - NEXT_PUBLIC_API_URL=/api
+
+  # ── nginx reverse proxy ──
+  nginx:
+    image: nginx:alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      # Uncomment when SSL certs are ready:
+      # - ./certs:/etc/nginx/certs:ro
+    depends_on:
+      - api
+      - web

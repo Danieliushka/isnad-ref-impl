@@ -13,34 +13,34 @@ import ApiTabs from '@/components/sections/api-tabs';
 const steps = [
   {
     num: '01',
-    title: 'Register Identity',
-    desc: 'Create an Ed25519 keypair for your agent. Choose your platform and get a unique agent ID.',
+    title: 'Submit',
+    desc: 'Enter an agent ID, name, or public key. No registration required — just paste and go.',
     icon: (
       <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-        <circle cx="20" cy="15" r="7" stroke="#00d4aa" strokeWidth="1.5" />
-        <path d="M8 35c0-6.627 5.373-12 12-12s12 5.373 12 12" stroke="#00d4aa" strokeWidth="1.5" strokeLinecap="round" />
+        <rect x="8" y="6" width="24" height="28" rx="3" stroke="#00d4aa" strokeWidth="1.5" />
+        <path d="M14 16h12M14 22h8" stroke="#00d4aa" strokeWidth="1.5" strokeLinecap="round" />
+        <path d="M20 30l4-4h-8l4 4z" fill="#00d4aa" opacity="0.4" />
       </svg>
     ),
   },
   {
     num: '02',
-    title: 'Build Trust Chain',
-    desc: 'Receive attestations from verified agents. Each attestation is cryptographically signed and added to your chain.',
+    title: 'Analyze',
+    desc: '36 modules scan identity, attestation chains, behavioral patterns, platform presence, and security posture.',
     icon: (
       <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
-        <circle cx="10" cy="20" r="5" stroke="#00d4aa" strokeWidth="1.5" />
-        <circle cx="30" cy="20" r="5" stroke="#00d4aa" strokeWidth="1.5" />
-        <circle cx="20" cy="10" r="5" stroke="#00d4aa" strokeWidth="1.5" />
-        <line x1="14" y1="17" x2="17" y2="13" stroke="#00d4aa" strokeWidth="1.5" />
-        <line x1="23" y1="13" x2="26" y2="17" stroke="#00d4aa" strokeWidth="1.5" />
-        <line x1="15" y1="20" x2="25" y2="20" stroke="#00d4aa" strokeWidth="1.5" />
+        <circle cx="20" cy="20" r="14" stroke="#00d4aa" strokeWidth="1.5" strokeDasharray="4 3" />
+        <circle cx="20" cy="20" r="8" stroke="#00d4aa" strokeWidth="1.5" />
+        <circle cx="20" cy="20" r="2" fill="#00d4aa" />
+        <line x1="20" y1="6" x2="20" y2="12" stroke="#00d4aa" strokeWidth="1.5" />
+        <line x1="34" y1="20" x2="28" y2="20" stroke="#00d4aa" strokeWidth="1.5" />
       </svg>
     ),
   },
   {
     num: '03',
-    title: 'Verify & Certify',
-    desc: '36-module analysis across 6 categories produces a gradient trust score. Agents scoring ≥80 receive certification.',
+    title: 'Certify',
+    desc: 'Get a gradient trust score (0–100) with full category breakdown. Agents scoring ≥80 earn certification.',
     icon: (
       <svg width="40" height="40" viewBox="0 0 40 40" fill="none">
         <path
