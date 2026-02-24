@@ -8,14 +8,19 @@ import TrustChainHero from '@/components/trust-chain-hero';
 export default function HeroSection() {
   return (
     <section className="relative min-h-screen flex items-center justify-center px-6 overflow-hidden">
-      {/* Gradient mesh background */}
-      <div className="absolute inset-0 hero-mesh" />
+      {/* Banner background image */}
+      <div
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat"
+        style={{ backgroundImage: 'url(/gendolf-banner.jpg)' }}
+      />
+      {/* Dark overlay for readability */}
+      <div className="absolute inset-0 bg-gradient-to-b from-[#050507]/70 via-[#050507]/50 to-[#050507]" />
 
-      {/* Dot grid pattern */}
-      <div className="absolute inset-0 dot-grid opacity-40" />
+      {/* Subtle dot grid on top */}
+      <div className="absolute inset-0 dot-grid opacity-20" />
 
       {/* Trust chain visualization */}
-      <div className="absolute inset-0 opacity-[0.12] pointer-events-none">
+      <div className="absolute inset-0 opacity-[0.08] pointer-events-none">
         <TrustChainHero />
       </div>
 
