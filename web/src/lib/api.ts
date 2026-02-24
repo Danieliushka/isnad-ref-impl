@@ -108,3 +108,37 @@ export async function getIdentity(
   if (!res.ok) throw new Error(`Identity not found: ${res.status}`);
   return res.json();
 }
+
+/* ── Trust Score v2 (real platform data) ── */
+
+export interface SignalDetail {
+  score: number;
+  weight: number;
+  confidence: number;
+  effective_weight: number;
+  evidence: Record<string, unknown>;
+}
+
+export interface TrustScoreV2Response {
+  agent_id: string;
+  trust_score: number;
+  version: string;
+  signals: {
+    platform_reputation: SignalDetail;
+    delivery_track_record: SignalDetail;
+    identity_verification: SignalDetail;
+    cross_platform_consistency: SignalDetail;
+  };
+  total_confidence: number;
+  platforms_checked: string[];
+}
+
+export async function getTrustScoreV2(
+  agentId: string
+): Promise<TrustScoreV2Response> {
+  const res = await fetch(
+    `${LEGACY_API}/trust-score-v2/${encodeURIComponent(agentId)}`
+  );
+  if (!res.ok) throw new Error(`Trust score v2 failed: ${res.status}`);
+  return res.json();
+}
