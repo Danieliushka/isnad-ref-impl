@@ -192,4 +192,18 @@ We welcome the opportunity to contribute isnad's technology and operational expe
 
 ---
 
-*This document is a DRAFT for internal review. Final submission requires: legal review of claims, verification of all statistics, formatting per NCCoE submission guidelines, and Daniel's approval.*
+*This document is a DRAFT for internal review.*
+
+---
+
+## Submission Checklist
+
+- [ ] Daniel review and approval
+- [ ] Verify all statistics (test count, module count, LOC) match current codebase
+- [ ] Confirm sandbox URL is live and accessible
+- [ ] Format per NCCoE submission guidelines (if specific template exists)
+- [ ] Legal review of claims and participation commitments
+- [ ] Update date field to submission date
+- [ ] Send to AI-Identity@nist.gov before April 2, 2026
+- [ ] CC Daniel on submission email
+- [ ] Update Linear DAN-47 to Done after submission
