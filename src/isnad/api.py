@@ -178,6 +178,42 @@ def get_trust_score(agent_id: str, scope: Optional[str] = None):
         "unique_witnesses": len(witnesses),
     }
 
+@app.get("/trust-score-v2/{agent_id}")
+def get_trust_score_v2(agent_id: str):
+    """Get trust score v2 — real platform data scoring.
+
+    Fetches reputation from connected platforms (ugig, GitHub, etc.)
+    and computes a trust score based on verifiable metrics.
+    """
+    from isnad.trustscore.scorer_v2 import TrustScorerV2
+    from isnad.trustscore.platform_connectors import PlatformReputation
+
+    # Check if agent has platform links in their attestations
+    attestations = trust_chain._by_subject.get(agent_id, [])
+
+    # Try to extract platform usernames from attestation metadata
+    platforms = {}
+    for att in attestations:
+        meta = att.metadata or {}
+        if "ugig_username" in meta:
+            platforms["ugig"] = meta["ugig_username"]
+        if "github_username" in meta:
+            platforms["github"] = meta["github_username"]
+        if "moltlaunch_name" in meta:
+            platforms["moltlaunch"] = meta["moltlaunch_name"]
+        if "clawk_username" in meta:
+            platforms["clawk"] = meta["clawk_username"]
+
+    # If no platform data from attestations, try the agent_id as username
+    if not platforms:
+        platforms = {"ugig": agent_id, "github": agent_id}
+
+    scorer = TrustScorerV2.from_platforms(platforms)
+    result = scorer.compute_detailed()
+    result["agent_id"] = agent_id
+    return result
+
+
 @app.get("/chain")
 def get_chain_stats():
     """Get overall chain statistics."""
