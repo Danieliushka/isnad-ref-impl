@@ -13,6 +13,8 @@ Public endpoints (no auth required):
 from __future__ import annotations
 
 import hashlib
+import hmac
+import os
 import secrets
 import time
 from contextlib import asynccontextmanager
@@ -20,11 +22,14 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, FastAPI, HTTPException, Query, Request, Response, Security
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from isnad.core import AgentIdentity, Attestation, TrustChain, RevocationRegistry
+from isnad.security import (
+    sanitize_input, timing_safe_validate_key, require_admin_key,
+    log_auth_failure, logger, limiter, apply_security,
+)
 
 # ---------------------------------------------------------------------------
 # Pydantic models
@@ -210,14 +215,17 @@ def configure(
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
 
-async def require_api_key(api_key: str = Security(_api_key_header)) -> dict:
+async def require_api_key(request: Request, api_key: str = Security(_api_key_header)) -> dict:
     """Dependency that validates the X-API-Key header against the database."""
+    ip = request.client.host if request.client else "unknown"
     if not api_key:
+        log_auth_failure(ip, "missing API key", request.url.path)
         raise HTTPException(status_code=401, detail="Missing API key")
     if _db is None:
         raise HTTPException(status_code=503, detail="Database not available")
     key_record = await _db.validate_api_key(api_key)
     if key_record is None:
+        log_auth_failure(ip, "invalid API key", request.url.path)
         raise HTTPException(status_code=403, detail="Invalid API key")
     return key_record
 
@@ -278,24 +286,10 @@ router = APIRouter(prefix="/api/v1", tags=["v1"])
 # ---------------------------------------------------------------------------
 
 def add_middlewares(app: FastAPI, *, allowed_origins: list[str] | None = None):
-    """Attach CORS and security-headers middlewares to *app*."""
-    origins = allowed_origins or ["*"]
-    app.add_middleware(
-        CORSMiddleware,
-        allow_origins=origins,
-        allow_credentials=True,
-        allow_methods=["*"],
-        allow_headers=["*"],
-    )
-
-    @app.middleware("http")
-    async def security_headers(request: Request, call_next):
-        response: Response = await call_next(request)
-        response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
-        response.headers["Strict-Transport-Security"] = "max-age=63072000; includeSubDomains"
-        response.headers["Content-Security-Policy"] = "default-src 'self'"
-        return response
+    """Attach all security middlewares via isnad.security.apply_security."""
+    if allowed_origins:
+        os.environ.setdefault("ALLOWED_ORIGINS", ",".join(allowed_origins))
+    apply_security(app)
 
 
 # ---------------------------------------------------------------------------
@@ -460,9 +454,9 @@ async def stats():
     agents_checked = 0
     if _db is not None:
         try:
-            cur = await _db._db.execute("SELECT COUNT(*) FROM trust_checks")
-            row = await cur.fetchone()
-            agents_checked = row[0] if row else 0
+            async with _db._pool.acquire() as conn:
+                row = await conn.fetchrow("SELECT COUNT(*) as cnt FROM trust_checks")
+                agents_checked = row["cnt"] if row else 0
         except Exception:
             pass
 
@@ -475,15 +469,12 @@ async def stats():
 
 
 @router.get("/check/{agent_id}", response_model=TrustCheckResult)
+@limiter.limit("60/minute")
 async def check_agent(agent_id: str, request: Request):
     """
     **Flagship endpoint** — Run a full 36-module trust evaluation.
-
-    Accepts an agent ID, name, or public key. Returns a detailed report
-    with overall score, 6 category breakdowns, confidence level, risk flags,
-    and attestation count. Results are persisted to the database.
     """
-    _check_rate_limit(request)
+    sanitize_input(agent_id, "agent_id")
     t0 = time.time()
 
     # Resolve agent_id — could be id, name, or pubkey
@@ -537,9 +528,9 @@ async def explorer(
             offset = (page - 1) * limit
             rows = await _db.list_agents(limit=limit, offset=offset)
             # count total
-            cur = await _db._db.execute("SELECT COUNT(*) FROM agents")
-            row = await cur.fetchone()
-            total = row[0] if row else 0
+            async with _db._pool.acquire() as conn:
+                row = await conn.fetchrow("SELECT COUNT(*) as cnt FROM agents")
+                total = row["cnt"] if row else 0
             for r in rows:
                 if search and search.lower() not in (r.get("id", "") + r.get("name", "")).lower():
                     continue
@@ -626,8 +617,12 @@ async def explorer_detail(agent_id: str):
 # ---------------------------------------------------------------------------
 
 @router.post("/agents/register", response_model=AgentRegisterResponse)
-async def register_agent(body: AgentRegisterRequest):
+@limiter.limit("10/minute")
+async def register_agent(request: Request, body: AgentRegisterRequest):
     """Register a new agent. Generates Ed25519 keypair and API key server-side."""
+    # Sanitize inputs
+    sanitize_input(body.name, "name")
+    sanitize_input(body.description, "description")
     if _db is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
@@ -836,13 +831,14 @@ async def update_agent_profile(agent_id: str, body: AgentUpdateRequest, request:
     if not api_key:
         raise HTTPException(status_code=401, detail="Missing API key")
 
-    api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()
-
     agent = await _db.get_agent(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    if agent.get("api_key_hash") != api_key_hash:
+    stored_hash = agent.get("api_key_hash", "")
+    if not stored_hash or not timing_safe_validate_key(api_key, stored_hash):
+        ip = request.client.host if request.client else "unknown"
+        log_auth_failure(ip, "invalid API key for agent", request.url.path)
         raise HTTPException(status_code=403, detail="Invalid API key for this agent")
 
     # Build update fields
@@ -923,7 +919,7 @@ async def get_trust_report(agent_id: str):
 
 
 @router.post("/admin/scan/{agent_id}")
-async def trigger_scan(agent_id: str, key_record: dict = Depends(require_api_key)):
+async def trigger_scan(agent_id: str, _admin: bool = Depends(require_admin_key)):
     """Trigger a manual platform scan for an agent. Requires admin API key."""
     if _db is None:
         raise HTTPException(status_code=503, detail="Database not available")
@@ -953,11 +949,18 @@ _worker = None
 def create_app(*, allowed_origins: list[str] | None = None,
                use_lifespan: bool = True) -> FastAPI:
     """Create a standalone FastAPI app with the v1 router and middlewares."""
+    if allowed_origins is None:
+        env_origins = os.environ.get("ALLOWED_ORIGINS", "")
+        if env_origins:
+            allowed_origins = [o.strip() for o in env_origins.split(",") if o.strip()]
+    
     app = FastAPI(
         title="isnad API",
         description="Agent Trust Protocol — v1 API",
         version="0.3.0",
         lifespan=lifespan if use_lifespan else None,
+        docs_url=None if os.environ.get("ISNAD_PRODUCTION") else "/docs",
+        redoc_url=None if os.environ.get("ISNAD_PRODUCTION") else "/redoc",
     )
     add_middlewares(app, allowed_origins=allowed_origins)
     app.include_router(router)

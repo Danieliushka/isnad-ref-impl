@@ -311,10 +311,14 @@ def log_auth_failure(ip: str, reason: str, endpoint: str = ""):
 # ─── Apply all security to a FastAPI app ──────────────────────────
 
 def apply_security(app):
-    """One-call setup: CORS, rate limiting, logging middleware, error handlers."""
+    """One-call setup: CORS, rate limiting, body size limit, logging middleware, error handlers."""
     from slowapi.errors import RateLimitExceeded
 
     configure_cors(app)
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, rate_limit_exceeded_handler)
+    app.add_exception_handler(Exception, generic_exception_handler)
+
+    max_body = int(os.environ.get("MAX_REQUEST_BODY", "1048576"))
+    app.add_middleware(RequestSizeLimitMiddleware, max_size=max_body)
     app.add_middleware(RequestLoggingMiddleware)
