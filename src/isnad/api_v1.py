@@ -26,6 +26,7 @@ from fastapi.security import APIKeyHeader
 from pydantic import BaseModel, Field
 
 from isnad.core import AgentIdentity, Attestation, TrustChain, RevocationRegistry
+from isnad.acn_bridge import ACNBridge
 from isnad.security import (
     sanitize_input, timing_safe_validate_key, require_admin_key,
     log_auth_failure, logger, limiter, apply_security,
@@ -116,6 +117,34 @@ class HealthResponse(BaseModel):
     version: str = "0.3.0"
     modules: int = 36
     tests: int = 1029
+
+
+# ---------------------------------------------------------------------------
+# /verify models (ACN integration)
+# ---------------------------------------------------------------------------
+
+class CreditTierInfo(BaseModel):
+    score: float
+    tier: str
+    description: str
+
+
+class VerifyBreakdown(BaseModel):
+    attestation_count: int = 0
+    witness_diversity: float = 0.0
+    recency_score: float = 0.0
+    categories: list[str] = []
+
+
+class VerifyResponse(BaseModel):
+    agent_id: str
+    trust_score: float
+    confidence: str
+    credit_tier: CreditTierInfo
+    breakdown: VerifyBreakdown
+    verified_at: str
+    certification_id: str
+    protocol_version: str = "0.3.0"
 
 
 # ---------------------------------------------------------------------------
@@ -509,6 +538,77 @@ async def check_agent(agent_id: str, request: Request):
     _request_times.append(elapsed_ms)
 
     return result
+
+
+@router.get("/verify/{agent_id}", response_model=VerifyResponse)
+@limiter.limit("60/minute")
+async def verify_agent(agent_id: str, request: Request):
+    """
+    ACN Verify endpoint — returns trust score with credit tier mapping.
+
+    Public endpoint for Risueno ACN integration. Runs the trust evaluation
+    and maps the result to a credit tier via ACNBridge.
+    """
+    sanitize_input(agent_id, "agent_id")
+
+    # Run trust check (reuse certification logic)
+    result = _run_certification(agent_id)
+
+    # Normalize overall_score (0-100) to trust_score (0.0-1.0)
+    trust_score = result.overall_score / 100.0
+
+    # Map trust → credit via ACNBridge
+    bridge = ACNBridge()
+    credit_score = bridge.trust_to_credit(trust_score)
+
+    # Determine credit tier
+    if credit_score >= 750:
+        tier, desc = "A", "Excellent standing"
+    elif credit_score >= 700:
+        tier, desc = "B", "Good standing"
+    elif credit_score >= 650:
+        tier, desc = "C", "Fair standing"
+    elif credit_score >= 600:
+        tier, desc = "D", "Below average"
+    else:
+        tier, desc = "F", "Poor standing"
+
+    # Compute breakdown
+    relevant_atts = [a for a in _trust_chain.attestations
+                     if a.subject == agent_id or a.witness == agent_id]
+    witnesses = {a.witness for a in relevant_atts if a.subject == agent_id}
+    witness_diversity = min(len(witnesses) / 5.0, 1.0) if witnesses else 0.0
+
+    # Recency: fraction of attestations from last 30 days
+    now_ts = time.time()
+    thirty_days = 30 * 86400
+    recent = [a for a in relevant_atts
+              if hasattr(a, 'timestamp') and (now_ts - getattr(a, 'timestamp', 0)) < thirty_days]
+    recency_score = len(recent) / max(len(relevant_atts), 1)
+
+    categories = [c.name for c in result.categories if c.score > 0]
+
+    now = datetime.now(timezone.utc)
+    cert_id = hashlib.sha256(f"verify:{agent_id}:{now.isoformat()}".encode()).hexdigest()[:16]
+
+    return VerifyResponse(
+        agent_id=agent_id,
+        trust_score=round(trust_score, 4),
+        confidence=result.confidence,
+        credit_tier=CreditTierInfo(
+            score=credit_score,
+            tier=tier,
+            description=desc,
+        ),
+        breakdown=VerifyBreakdown(
+            attestation_count=len(relevant_atts),
+            witness_diversity=round(witness_diversity, 4),
+            recency_score=round(recency_score, 4),
+            categories=categories,
+        ),
+        verified_at=now.isoformat() + "Z",
+        certification_id=cert_id,
+    )
 
 
 @router.get("/explorer", response_model=ExplorerPage)
@@ -1008,6 +1108,101 @@ async def trigger_scan(agent_id: str, _admin: bool = Depends(require_admin_key))
         "platforms_scanned": len(results),
         "results": [{"platform": r["platform"], "url": r["url"], "alive": r["alive"]} for r in results],
     }
+
+
+# ---------------------------------------------------------------------------
+# ACN Integration — /verify/trust endpoint
+# ---------------------------------------------------------------------------
+
+class ACNTrustBreakdown(BaseModel):
+    identity: float = Field(ge=0, le=1.0, description="Identity verification strength")
+    reputation: float = Field(ge=0, le=1.0, description="Platform reputation")
+    delivery: float = Field(ge=0, le=1.0, description="Task delivery track record")
+    consistency: float = Field(ge=0, le=1.0, description="Cross-platform consistency")
+
+
+class ACNVerifyResult(BaseModel):
+    agent_id: str
+    agent_name: str
+    verified: bool
+    trust_score: int = Field(ge=0, le=100)
+    breakdown: ACNTrustBreakdown
+    credit_tier: str = Field(description="platinum|gold|silver|bronze|unrated")
+    confidence: str = Field(description="high|medium|low")
+    attestation_count: int
+    risk_flags: list[str] = []
+    checked_at: str
+
+
+def _score_to_credit_tier(score: int) -> str:
+    if score >= 85:
+        return "platinum"
+    elif score >= 70:
+        return "gold"
+    elif score >= 50:
+        return "silver"
+    elif score >= 25:
+        return "bronze"
+    return "unrated"
+
+
+@router.get("/verify/trust/{agent_id}", response_model=ACNVerifyResult)
+async def verify_trust_acn(agent_id: str):
+    """Verify agent trust with breakdown and ACN credit tier mapping.
+
+    Designed for ACN (Agent Credit Network) integration:
+    - Trust score breakdown by dimension (identity, reputation, delivery, consistency)
+    - Credit tier mapping (platinum/gold/silver/bronze/unrated)
+    - Confidence level based on data depth
+    """
+    # Resolve agent_id
+    resolved_id = agent_id
+    if _db is not None:
+        try:
+            agent_row = await _db.get_agent(agent_id)
+            if agent_row is None:
+                agent_row = await _db.get_agent_by_pubkey(agent_id)
+            if agent_row is not None:
+                resolved_id = agent_row["id"]
+        except Exception:
+            pass
+
+    # Run full trust check
+    result = _run_certification(resolved_id)
+
+    # Extract category scores into breakdown
+    cats = {c.name: c.score / 100.0 for c in result.categories}
+    breakdown = ACNTrustBreakdown(
+        identity=round(cats.get("identity", 0), 3),
+        reputation=round(cats.get("platform", 0), 3),
+        delivery=round(cats.get("behavioral", 0) * 0.5 + cats.get("transactions", 0) * 0.5, 3),
+        consistency=round(cats.get("security", 0) * 0.5 + cats.get("attestation", 0) * 0.5, 3),
+    )
+
+    # Resolve agent name
+    agent_name = agent_id
+    ident = _identities.get(agent_id)
+    if ident:
+        agent_name = ident.name or agent_id
+    elif _db:
+        agent = await _db.get_agent(agent_id)
+        if agent:
+            agent_name = agent.get("name", agent_id)
+
+    tier = _score_to_credit_tier(result.overall_score)
+
+    return ACNVerifyResult(
+        agent_id=result.agent_id,
+        agent_name=agent_name,
+        verified=result.overall_score >= 25 and result.attestation_count > 0,
+        trust_score=result.overall_score,
+        breakdown=breakdown,
+        credit_tier=tier,
+        confidence=result.confidence,
+        attestation_count=result.attestation_count,
+        risk_flags=result.risk_flags,
+        checked_at=result.last_checked,
+    )
 
 
 # ---------------------------------------------------------------------------
