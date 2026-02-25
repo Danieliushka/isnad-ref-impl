@@ -918,6 +918,74 @@ async def get_trust_report(agent_id: str):
     )
 
 
+@router.get("/trust-score-v2/{agent_id}")
+async def trust_score_v2_compat(agent_id: str, request: Request):
+    """Backward-compatible trust-score-v2 endpoint.
+
+    Calls the same TrustScorerV2 logic as the old API and returns the
+    response shape the frontend expects.
+    """
+    from isnad.trustscore.scorer_v2 import TrustScorerV2
+
+    # Try to resolve platform links from DB
+    platforms: dict[str, str] = {}
+    resolved_id = agent_id
+
+    if _db is not None:
+        try:
+            agent_row = await _db.get_agent(agent_id)
+            if agent_row is None:
+                # Try lookup by name
+                async with _db._pool.acquire() as conn:
+                    row = await conn.fetchrow(
+                        "SELECT * FROM agents WHERE LOWER(name) = LOWER($1)", agent_id
+                    )
+                    if row:
+                        agent_row = dict(row)
+            if agent_row:
+                resolved_id = agent_row["id"]
+                import json as _json
+                plats_raw = agent_row.get("platforms", "[]")
+                if isinstance(plats_raw, str):
+                    try:
+                        plats_raw = _json.loads(plats_raw)
+                    except Exception:
+                        plats_raw = []
+                for p in (plats_raw if isinstance(plats_raw, list) else []):
+                    pname = p.get("name", "").lower() if isinstance(p, dict) else ""
+                    purl = p.get("url", "") if isinstance(p, dict) else ""
+                    if pname and purl:
+                        platforms[pname] = purl
+        except Exception:
+            pass
+
+    # Also check attestation metadata (like old API)
+    for att in _trust_chain.attestations:
+        if att.subject == resolved_id or att.subject == agent_id:
+            meta = att.metadata or {}
+            for key, pname in [("ugig_username", "ugig"), ("github_username", "github"),
+                               ("moltlaunch_name", "moltlaunch"), ("clawk_username", "clawk")]:
+                if key in meta:
+                    platforms[pname] = meta[key]
+
+    if not platforms:
+        platforms = {"ugig": agent_id, "github": agent_id}
+
+    scorer = TrustScorerV2.from_platforms(platforms)
+    result = scorer.compute_detailed()
+    result["agent_id"] = resolved_id
+
+    # Map to frontend-expected shape
+    return {
+        "agent_id": resolved_id,
+        "trust_score": result.get("trust_score", 0.0),
+        "version": result.get("version", "2.0"),
+        "signals": result.get("signals", {}),
+        "total_confidence": result.get("data_quality", 0.0),
+        "platforms_checked": result.get("platforms", []),
+    }
+
+
 @router.post("/admin/scan/{agent_id}")
 async def trigger_scan(agent_id: str, _admin: bool = Depends(require_admin_key)):
     """Trigger a manual platform scan for an agent. Requires admin API key."""

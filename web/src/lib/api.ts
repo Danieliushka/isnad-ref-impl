@@ -3,9 +3,6 @@ import type { Agent, TrustCheckResult } from "./types";
 const API_BASE =
   process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
 
-const LEGACY_API =
-  process.env.NEXT_PUBLIC_LEGACY_API_URL || "http://localhost:8000";
-
 export async function checkAgent(agentId: string): Promise<TrustCheckResult> {
   const res = await fetch(`${API_BASE}/check/${encodeURIComponent(agentId)}`);
   if (!res.ok) throw new Error(`Check failed: ${res.status}`);
@@ -31,7 +28,7 @@ export interface StatsResponse {
 }
 
 export async function getStats(): Promise<StatsResponse> {
-  const res = await fetch(`${LEGACY_API}/stats`);
+  const res = await fetch(`${API_BASE}/stats`);
   if (!res.ok) throw new Error(`Stats failed: ${res.status}`);
   return res.json();
 }
@@ -51,7 +48,7 @@ export interface CreateIdentityResponse {
 export async function createIdentity(
   data: CreateIdentityRequest
 ): Promise<CreateIdentityResponse> {
-  const res = await fetch(`${LEGACY_API}/identities`, {
+  const res = await fetch(`${API_BASE}/identities`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
@@ -72,7 +69,7 @@ export async function listIdentities(): Promise<{
   identities: IdentityListItem[];
   count: number;
 }> {
-  const res = await fetch(`${LEGACY_API}/identities`);
+  const res = await fetch(`${API_BASE}/identities`);
   if (!res.ok) throw new Error(`List identities failed: ${res.status}`);
   return res.json();
 }
@@ -87,7 +84,7 @@ export async function getTrustScore(
   agentId: string
 ): Promise<TrustScoreResponse> {
   const res = await fetch(
-    `${LEGACY_API}/trust/${encodeURIComponent(agentId)}`
+    `${API_BASE}/trust/${encodeURIComponent(agentId)}`
   );
   if (!res.ok) throw new Error(`Trust score failed: ${res.status}`);
   return res.json();
@@ -103,7 +100,7 @@ export async function getIdentity(
   agentId: string
 ): Promise<IdentityDetail> {
   const res = await fetch(
-    `${LEGACY_API}/identities/${encodeURIComponent(agentId)}`
+    `${API_BASE}/identities/${encodeURIComponent(agentId)}`
   );
   if (!res.ok) throw new Error(`Identity not found: ${res.status}`);
   return res.json();
@@ -245,7 +242,7 @@ export async function getTrustScoreV2(
   agentId: string
 ): Promise<TrustScoreV2Response> {
   const res = await fetch(
-    `${LEGACY_API}/trust-score-v2/${encodeURIComponent(agentId)}`
+    `${API_BASE}/trust-score-v2/${encodeURIComponent(agentId)}`
   );
   if (!res.ok) throw new Error(`Trust score v2 failed: ${res.status}`);
   return res.json();
