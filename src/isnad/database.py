@@ -130,6 +130,11 @@ class Database:
             row = await conn.fetchrow("SELECT * FROM agents WHERE id = $1", agent_id)
         return _record_to_dict(row) if row else None
 
+    async def get_agent_by_name(self, name: str) -> Optional[dict]:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM agents WHERE LOWER(name) = LOWER($1)", name)
+        return _record_to_dict(row) if row else None
+
     async def get_agent_by_pubkey(self, public_key: str) -> Optional[dict]:
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow("SELECT * FROM agents WHERE public_key = $1", public_key)

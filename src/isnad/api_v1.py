@@ -770,13 +770,16 @@ async def list_agents(
 
 @router.get("/agents/{agent_id}", response_model=AgentProfileResponse)
 async def get_agent_profile(agent_id: str):
-    """Get full public profile of an agent."""
+    """Get full public profile of an agent (supports UUID or case-insensitive name)."""
     if _db is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
     import json
 
     agent = await _db.get_agent(agent_id)
+    if not agent:
+        # Fallback: try case-insensitive name lookup for user-friendly URLs
+        agent = await _db.get_agent_by_name(agent_id)
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
