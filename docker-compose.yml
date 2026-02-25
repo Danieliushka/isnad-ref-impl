@@ -1,13 +1,33 @@
 version: "3.8"
 
 services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: isnad
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-isnad_secret}
+      POSTGRES_DB: isnad_db
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U isnad -d isnad_db"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
   isnad-api:
     build: .
     ports:
       - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
     environment:
       - ISNAD_HOST=0.0.0.0
       - ISNAD_PORT=8000
+      - DATABASE_URL=postgresql://isnad:${POSTGRES_PASSWORD:-isnad_secret}@postgres:5432/isnad_db
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
       interval: 10s
@@ -21,6 +41,10 @@ services:
         condition: service_healthy
     environment:
       - ISNAD_API_URL=http://isnad-api:8000
+      - DATABASE_URL=postgresql://isnad:${POSTGRES_PASSWORD:-isnad_secret}@postgres:5432/isnad_db
     command: python examples/demo_scenario.py
     profiles:
       - demo
+
+volumes:
+  pgdata:
