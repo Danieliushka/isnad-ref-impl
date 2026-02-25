@@ -1,348 +1,277 @@
-"use client";
+'use client';
 
-import { useState, useMemo, useEffect } from "react";
-import Link from "next/link";
-import { motion, AnimatePresence } from "framer-motion";
-import { Navbar } from "@/components/ui/navbar";
-import { Card } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
-import { listIdentities, getTrustScoreV2, type TrustScoreV2Response } from "@/lib/api";
+import { useState, useMemo, useEffect, useCallback } from 'react';
+import Link from 'next/link';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Navbar } from '@/components/ui/navbar';
+import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import AgentCard from '@/components/agent-card';
+import { listAgents, type AgentProfile } from '@/lib/api';
 
-type AgentStatus = "certified" | "pending" | "failed";
-type SortKey = "score-desc" | "score-asc" | "name-az";
+type SortKey = 'trust' | 'name' | 'newest';
+type AgentType = '' | 'autonomous' | 'tool-calling' | 'human-supervised';
+type ScoreRange = '' | 'high' | 'medium' | 'low';
 
-interface ExplorerAgent {
-  agent_id: string;
-  public_key: string;
-  trust_score: number | null;
-  total_confidence: number | null;
-  platforms_checked: string[];
-  status: AgentStatus;
-}
-
-const ITEMS_PER_PAGE = 10;
-
-const sorts: { key: SortKey; label: string }[] = [
-  { key: "score-desc", label: "Score (high→low)" },
-  { key: "score-asc", label: "Score (low→high)" },
-  { key: "name-az", label: "Name A-Z" },
+const sortOptions: { key: SortKey; label: string }[] = [
+  { key: 'trust', label: 'Trust Score' },
+  { key: 'newest', label: 'Newest' },
+  { key: 'name', label: 'Name A–Z' },
 ];
 
-function deriveStatus(score: number | null): AgentStatus {
-  if (score === null) return "pending";
-  if (score >= 0.7) return "certified";
-  if (score >= 0.4) return "pending";
-  return "failed";
-}
+const typeFilters: { key: AgentType; label: string }[] = [
+  { key: '', label: 'All Types' },
+  { key: 'autonomous', label: 'Autonomous' },
+  { key: 'tool-calling', label: 'Tool-Calling' },
+  { key: 'human-supervised', label: 'Human-Supervised' },
+];
 
-function statusBadge(s: AgentStatus) {
-  if (s === "certified") return { text: "Certified", variant: "success" as const };
-  if (s === "pending") return { text: "Pending", variant: "warning" as const };
-  return { text: "Failed", variant: "danger" as const };
-}
+const scoreFilters: { key: ScoreRange; label: string }[] = [
+  { key: '', label: 'Any Score' },
+  { key: 'high', label: '80+' },
+  { key: 'medium', label: '50–79' },
+  { key: 'low', label: '0–49' },
+];
 
-function displayScore(score: number | null): string {
-  if (score === null) return "N/A";
-  return String(Math.round(score * 100));
+function SkeletonCard() {
+  return (
+    <div className="bg-white/[0.03] backdrop-blur-xl border border-white/[0.07] rounded-2xl p-5 animate-pulse">
+      <div className="flex items-start gap-4">
+        <div className="w-20 h-20 rounded-full bg-white/[0.06]" />
+        <div className="flex-1 space-y-3">
+          <div className="h-4 w-32 bg-white/[0.06] rounded" />
+          <div className="h-3 w-20 bg-white/[0.04] rounded" />
+          <div className="h-3 w-full bg-white/[0.04] rounded" />
+        </div>
+      </div>
+      <div className="flex gap-2 mt-4 pt-3 border-t border-white/[0.05]">
+        <div className="h-6 w-16 bg-white/[0.04] rounded-lg" />
+        <div className="h-6 w-16 bg-white/[0.04] rounded-lg" />
+      </div>
+    </div>
+  );
 }
 
 export default function ExplorerPage() {
-  const [agents, setAgents] = useState<ExplorerAgent[]>([]);
+  const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [search, setSearch] = useState("");
-  const [sort, setSort] = useState<SortKey>("score-desc");
+  const [search, setSearch] = useState('');
+  const [sort, setSort] = useState<SortKey>('trust');
+  const [typeFilter, setTypeFilter] = useState<AgentType>('');
+  const [scoreFilter, setScoreFilter] = useState<ScoreRange>('');
   const [page, setPage] = useState(1);
+  const limit = 12;
+
+  const fetchAgents = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
+      const res = await listAgents({
+        page,
+        limit,
+        agent_type: typeFilter || undefined,
+        search: search || undefined,
+      });
+      setAgents(res.agents);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : 'Failed to load agents');
+    } finally {
+      setLoading(false);
+    }
+  }, [page, typeFilter, search]);
 
   useEffect(() => {
-    let cancelled = false;
-
-    async function fetchData() {
-      try {
-        setLoading(true);
-        setError(null);
-        const { identities } = await listIdentities();
-
-        const results: ExplorerAgent[] = await Promise.all(
-          identities.map(async (id) => {
-            let v2: TrustScoreV2Response | null = null;
-            try {
-              v2 = await getTrustScoreV2(id.agent_id);
-            } catch {
-              // score fetch failed — show N/A
-            }
-            const trust_score = v2?.trust_score ?? null;
-            return {
-              agent_id: id.agent_id,
-              public_key: id.public_key,
-              trust_score,
-              total_confidence: v2?.total_confidence ?? null,
-              platforms_checked: v2?.platforms_checked ?? [],
-              status: deriveStatus(trust_score),
-            };
-          })
-        );
-
-        if (!cancelled) setAgents(results);
-      } catch (e) {
-        if (!cancelled) setError(e instanceof Error ? e.message : "Failed to load agents");
-      } finally {
-        if (!cancelled) setLoading(false);
-      }
-    }
-
-    fetchData();
-    return () => { cancelled = true; };
-  }, []);
+    const timeout = setTimeout(fetchAgents, search ? 300 : 0);
+    return () => clearTimeout(timeout);
+  }, [fetchAgents, search]);
 
   const filtered = useMemo(() => {
-    let list = agents;
+    let list = [...agents];
 
-    if (search) {
-      const q = search.toLowerCase();
-      list = list.filter(
-        (a) =>
-          a.agent_id.toLowerCase().includes(q) ||
-          a.platforms_checked.some((p) => p.toLowerCase().includes(q))
-      );
-    }
+    // Score filter (client-side since API may not support it)
+    if (scoreFilter === 'high') list = list.filter(a => a.trust_score >= 80);
+    else if (scoreFilter === 'medium') list = list.filter(a => a.trust_score >= 50 && a.trust_score < 80);
+    else if (scoreFilter === 'low') list = list.filter(a => a.trust_score < 50);
 
-    list = [...list].sort((a, b) => {
+    // Sort
+    list.sort((a, b) => {
       switch (sort) {
-        case "score-desc": return (b.trust_score ?? -1) - (a.trust_score ?? -1);
-        case "score-asc": return (a.trust_score ?? -1) - (b.trust_score ?? -1);
-        case "name-az": return a.agent_id.localeCompare(b.agent_id);
+        case 'trust': return b.trust_score - a.trust_score;
+        case 'name': return a.name.localeCompare(b.name);
+        case 'newest': return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
       }
     });
 
     return list;
-  }, [agents, search, sort]);
+  }, [agents, scoreFilter, sort]);
 
-  const totalPages = Math.max(1, Math.ceil(filtered.length / ITEMS_PER_PAGE));
-  const safePage = Math.min(page, totalPages);
-  const paginated = filtered.slice((safePage - 1) * ITEMS_PER_PAGE, safePage * ITEMS_PER_PAGE);
-  const showStart = filtered.length === 0 ? 0 : (safePage - 1) * ITEMS_PER_PAGE + 1;
-  const showEnd = Math.min(safePage * ITEMS_PER_PAGE, filtered.length);
+  function Pill({ active, onClick, children }: { active: boolean; onClick: () => void; children: React.ReactNode }) {
+    return (
+      <button
+        onClick={onClick}
+        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 border ${
+          active
+            ? 'bg-isnad-teal/15 text-isnad-teal border-isnad-teal/30'
+            : 'bg-white/[0.03] text-zinc-500 border-white/[0.06] hover:text-zinc-300 hover:border-white/[0.12]'
+        }`}
+      >
+        {children}
+      </button>
+    );
+  }
 
   return (
     <>
       <Navbar />
-      <main className="min-h-screen pt-24 px-6 max-w-5xl mx-auto pb-20">
+      <main className="min-h-screen pt-24 px-4 sm:px-6 max-w-6xl mx-auto pb-20">
         {/* Header */}
         <motion.div
-          className="mb-8"
+          className="mb-10"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
         >
-          <h1 className="font-heading text-3xl md:text-4xl font-bold tracking-tight">Trust Explorer</h1>
-          <p className="text-zinc-500 mt-2 text-sm">Browse and verify all registered agent identities</p>
+          <h1 className="font-heading text-4xl md:text-5xl font-bold tracking-tight">
+            Agent Explorer
+          </h1>
+          <p className="text-zinc-500 mt-3 text-sm md:text-base max-w-lg">
+            Discover trusted AI agents. Verify their identity, reputation, and capabilities.
+          </p>
         </motion.div>
 
-        {/* Search */}
+        {/* Search + Filters */}
         <motion.div
+          className="space-y-4 mb-8"
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ delay: 0.1 }}
+          transition={{ delay: 0.15 }}
         >
-          <Input
-            className="mb-6"
-            placeholder="Search agents by ID or platform..."
-            value={search}
-            onChange={(e) => { setSearch(e.target.value); setPage(1); }}
-          />
-        </motion.div>
+          {/* Search bar */}
+          <div className="relative">
+            <svg className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <circle cx="11" cy="11" r="8" />
+              <path d="m21 21-4.35-4.35" />
+            </svg>
+            <Input
+              className="pl-11"
+              placeholder="Search by name, platform, or capability..."
+              value={search}
+              onChange={(e) => { setSearch(e.target.value); setPage(1); }}
+            />
+          </div>
 
-        {/* Sort */}
-        <motion.div
-          className="flex items-center justify-end gap-4 mb-6"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 0.2 }}
-        >
-          <select
-            value={sort}
-            onChange={(e) => setSort(e.target.value as SortKey)}
-            className="bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-2 text-sm text-zinc-300 font-mono focus:outline-none focus:ring-1 focus:ring-isnad-teal/30"
-          >
-            {sorts.map((s) => (
-              <option key={s.key} value={s.key} className="bg-zinc-900">
-                {s.label}
-              </option>
+          {/* Filter pills */}
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono mr-1">Type</span>
+            {typeFilters.map(f => (
+              <Pill key={f.key} active={typeFilter === f.key} onClick={() => { setTypeFilter(f.key); setPage(1); }}>
+                {f.label}
+              </Pill>
             ))}
-          </select>
+            <div className="w-px h-5 bg-white/[0.08] mx-2" />
+            <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono mr-1">Score</span>
+            {scoreFilters.map(f => (
+              <Pill key={f.key} active={scoreFilter === f.key} onClick={() => setScoreFilter(f.key)}>
+                {f.label}
+              </Pill>
+            ))}
+          </div>
+
+          {/* Sort */}
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono">Sort</span>
+            {sortOptions.map(s => (
+              <Pill key={s.key} active={sort === s.key} onClick={() => setSort(s.key)}>
+                {s.label}
+              </Pill>
+            ))}
+          </div>
         </motion.div>
 
-        {/* Loading */}
+        {/* Loading skeletons */}
         {loading && (
-          <div className="flex items-center justify-center py-20">
-            <div className="animate-spin rounded-full h-8 w-8 border-2 border-isnad-teal border-t-transparent" />
-            <span className="ml-3 text-zinc-500 text-sm">Loading agents…</span>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {Array.from({ length: 6 }).map((_, i) => (
+              <SkeletonCard key={i} />
+            ))}
           </div>
         )}
 
         {/* Error */}
         {error && !loading && (
           <div className="text-center py-20">
-            <p className="text-red-400 text-sm mb-4">Error: {error}</p>
-            <Button variant="ghost" size="sm" onClick={() => window.location.reload()}>
-              Retry
+            <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-red-500/10 mb-4">
+              <span className="text-2xl">⚠️</span>
+            </div>
+            <p className="text-red-400 text-sm mb-4">{error}</p>
+            <Button variant="ghost" size="sm" onClick={fetchAgents}>
+              Try Again
             </Button>
           </div>
         )}
 
-        {/* Content */}
+        {/* Agent Grid */}
         {!loading && !error && (
           <>
-            {/* Desktop Table */}
-            <div className="hidden md:block">
-              <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl overflow-hidden">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-white/[0.06]">
-                      <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">Agent</th>
-                      <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">Platforms</th>
-                      <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">Score</th>
-                      <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">Confidence</th>
-                      <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    <AnimatePresence mode="popLayout">
-                      {paginated.map((a, i) => {
-                        const sb = statusBadge(a.status);
-                        return (
-                          <motion.tr
-                            key={a.agent_id}
-                            initial={{ opacity: 0, y: 10 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ delay: i * 0.04 }}
-                            className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors"
-                          >
-                            <td className="px-6 py-4">
-                              <Link href={`/check/${a.agent_id}`} className="group">
-                                <span className="font-mono text-isnad-teal group-hover:text-isnad-teal-light transition-colors text-sm">
-                                  {a.agent_id}
-                                </span>
-                              </Link>
-                            </td>
-                            <td className="px-6 py-4 text-zinc-400 text-xs font-mono">
-                              {a.platforms_checked.length > 0 ? a.platforms_checked.join(", ") : "—"}
-                            </td>
-                            <td className="px-6 py-4">
-                              {a.trust_score !== null ? (
-                                <Badge score={Math.round(a.trust_score * 100)}>{displayScore(a.trust_score)}</Badge>
-                              ) : (
-                                <span className="text-zinc-600 text-xs">N/A</span>
-                              )}
-                            </td>
-                            <td className="px-6 py-4 font-mono text-zinc-400 text-sm tabular-nums">
-                              {a.total_confidence !== null ? a.total_confidence.toFixed(2) : "N/A"}
-                            </td>
-                            <td className="px-6 py-4">
-                              <Badge variant={sb.variant}>{sb.text}</Badge>
-                            </td>
-                          </motion.tr>
-                        );
-                      })}
-                    </AnimatePresence>
-                  </tbody>
-                </table>
-                {filtered.length === 0 && (
-                  <div className="px-6 py-16 text-center text-zinc-500">
-                    No agents found matching your search
-                  </div>
-                )}
+            {filtered.length > 0 ? (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                {filtered.map((agent, i) => (
+                  <AgentCard key={agent.agent_id} agent={agent} index={i} />
+                ))}
               </div>
-            </div>
-
-            {/* Mobile Cards */}
-            <div className="md:hidden grid gap-3">
-              <AnimatePresence mode="popLayout">
-                {paginated.map((a, i) => {
-                  const sb = statusBadge(a.status);
-                  return (
-                    <motion.div
-                      key={a.agent_id}
-                      initial={{ opacity: 0, y: 16 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      exit={{ opacity: 0 }}
-                      transition={{ delay: i * 0.06 }}
-                    >
-                      <Link href={`/check/${a.agent_id}`}>
-                        <Card className="active:scale-[0.98] transition-transform">
-                          <div className="flex items-center justify-between mb-3">
-                            <span className="font-mono text-isnad-teal text-sm truncate mr-2">{a.agent_id}</span>
-                            {a.trust_score !== null ? (
-                              <Badge score={Math.round(a.trust_score * 100)}>{displayScore(a.trust_score)}</Badge>
-                            ) : (
-                              <span className="text-zinc-600 text-xs">N/A</span>
-                            )}
-                          </div>
-                          <div className="flex items-center justify-between text-sm">
-                            <Badge variant={sb.variant} className="text-xs">{sb.text}</Badge>
-                            <span className="text-zinc-600 text-xs font-mono">
-                              {a.platforms_checked.length > 0 ? a.platforms_checked.join(", ") : "—"}
-                            </span>
-                          </div>
-                        </Card>
-                      </Link>
-                    </motion.div>
-                  );
-                })}
-              </AnimatePresence>
-              {filtered.length === 0 && (
-                <div className="py-16 text-center text-zinc-500">
-                  No agents found matching your search
+            ) : (
+              /* Empty state */
+              <motion.div
+                className="text-center py-24"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 0.2 }}
+              >
+                <div className="inline-flex items-center justify-center w-20 h-20 rounded-full bg-white/[0.04] border border-white/[0.06] mb-6">
+                  <span className="text-3xl">🔍</span>
                 </div>
-              )}
-            </div>
+                <h3 className="text-lg font-semibold text-zinc-300 mb-2">
+                  No agents found
+                </h3>
+                <p className="text-zinc-600 text-sm mb-6 max-w-sm mx-auto">
+                  {search || typeFilter || scoreFilter
+                    ? 'Try adjusting your filters or search terms.'
+                    : 'No agents registered yet. Be the first to join the trust network.'}
+                </p>
+                <Link href="/register">
+                  <Button>Register Your Agent</Button>
+                </Link>
+              </motion.div>
+            )}
 
             {/* Pagination */}
             {filtered.length > 0 && (
               <motion.div
-                className="mt-8 flex items-center justify-between"
+                className="mt-10 flex items-center justify-center gap-3"
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
-                transition={{ delay: 0.3 }}
+                transition={{ delay: 0.4 }}
               >
-                <p className="text-xs text-zinc-600 font-mono">
-                  {showStart}–{showEnd} of {filtered.length}
-                </p>
-                <div className="flex gap-2">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={safePage <= 1}
-                    onClick={() => setPage((p) => Math.max(1, p - 1))}
-                  >
-                    ← Previous
-                  </Button>
-                  {Array.from({ length: totalPages }, (_, i) => i + 1).map((p) => (
-                    <button
-                      key={p}
-                      onClick={() => setPage(p)}
-                      className={`w-8 h-8 rounded-lg text-sm font-mono transition-all ${
-                        p === safePage
-                          ? 'bg-isnad-teal/10 text-isnad-teal border border-isnad-teal/30'
-                          : 'text-zinc-500 hover:text-zinc-300 hover:bg-white/[0.04]'
-                      }`}
-                    >
-                      {p}
-                    </button>
-                  ))}
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    disabled={safePage >= totalPages}
-                    onClick={() => setPage((p) => p + 1)}
-                  >
-                    Next →
-                  </Button>
-                </div>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage(p => p - 1)}
+                >
+                  ← Previous
+                </Button>
+                <span className="text-xs text-zinc-600 font-mono tabular-nums px-3">
+                  Page {page}
+                </span>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  disabled={agents.length < limit}
+                  onClick={() => setPage(p => p + 1)}
+                >
+                  Next →
+                </Button>
               </motion.div>
             )}
           </>
