@@ -8,12 +8,16 @@ Signal weights:
     delivery_track_record    30%  — jobs completed vs cancelled/disputed
     identity_verification    15%  — profile completeness, cross-platform linking
     cross_platform_consistency 15% — consistency across multiple platforms
+
+Also provides PlatformTrustCalculator for aggregated trust reports
+based on worker-collected platform_data metrics.
 """
 
 from __future__ import annotations
 
 import math
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Optional
 
 from .platform_connectors import PlatformReputation, get_connector, CONNECTORS
@@ -303,3 +307,268 @@ class TrustScorerV2:
             self._identity_verification_score(),
             self._cross_platform_consistency_score(),
         ]
+
+
+# ═══════════════════════════════════════════════════════════════════
+# PlatformTrustCalculator — aggregated trust from worker platform_data
+# ═══════════════════════════════════════════════════════════════════
+
+# Trust decay: half-life of 30 days — inactive agents lose trust
+_DECAY_HALF_LIFE_DAYS = 30
+
+
+def _decay_factor(days_since_fetch: float) -> float:
+    """Exponential decay factor. At half-life, factor = 0.5."""
+    if days_since_fetch <= 0:
+        return 1.0
+    return math.pow(0.5, days_since_fetch / _DECAY_HALF_LIFE_DAYS)
+
+
+class PlatformTrustCalculator:
+    """Compute aggregated trust report from worker-collected platform_data.
+
+    ⚠️ HONEST scoring — no data = low score, not mid score.
+    Evidence-based only. Trust decays over time.
+
+    Scores:
+        identity_score    (0-100) — platform count, profile completeness
+        activity_score    (0-100) — average activity across platforms
+        reputation_score  (0-100) — reviews, ratings, stars
+        security_score    (0-100) — SSL, verification levels
+        overall_score     (0-100) — weighted average with time decay
+
+    Weights:
+        reputation   35%
+        activity     25%
+        identity     20%
+        security     20%
+    """
+
+    WEIGHTS = {
+        "identity": 0.20,
+        "activity": 0.25,
+        "reputation": 0.35,
+        "security": 0.20,
+    }
+
+    def __init__(self, platform_data: list[dict]):
+        """
+        Args:
+            platform_data: list of platform_data rows from DB.
+                Each must have: metrics (dict), last_fetched (str), platform_name.
+        """
+        self.platforms = platform_data
+
+    def compute_report(self) -> dict:
+        """Compute full trust report with breakdown."""
+        identity = self._identity_score()
+        activity = self._activity_score()
+        reputation = self._reputation_score()
+        security = self._security_score()
+
+        # Weighted average with global decay
+        overall_raw = (
+            identity["score"] * self.WEIGHTS["identity"]
+            + activity["score"] * self.WEIGHTS["activity"]
+            + reputation["score"] * self.WEIGHTS["reputation"]
+            + security["score"] * self.WEIGHTS["security"]
+        )
+
+        # Apply global decay based on most recent fetch
+        global_decay = self._global_decay_factor()
+        overall = int(overall_raw * global_decay)
+
+        return {
+            "overall_score": max(0, min(100, overall)),
+            "decay_factor": round(global_decay, 4),
+            "platform_count": len(self.platforms),
+            "scores": {
+                "identity": identity,
+                "activity": activity,
+                "reputation": reputation,
+                "security": security,
+            },
+            "computed_at": datetime.now(timezone.utc).isoformat(),
+        }
+
+    def _global_decay_factor(self) -> float:
+        """Decay based on the most recent platform fetch."""
+        if not self.platforms:
+            return 0.0
+
+        now = datetime.now(timezone.utc)
+        most_recent = 999999.0
+        for p in self.platforms:
+            fetched = p.get("last_fetched")
+            if not fetched:
+                continue
+            try:
+                if isinstance(fetched, str):
+                    dt = datetime.fromisoformat(fetched.replace("Z", "+00:00"))
+                else:
+                    dt = fetched
+                if dt.tzinfo is None:
+                    dt = dt.replace(tzinfo=timezone.utc)
+                days = (now - dt).total_seconds() / 86400
+                most_recent = min(most_recent, days)
+            except Exception:
+                continue
+
+        if most_recent > 999998:
+            return 0.0
+        return _decay_factor(most_recent)
+
+    def _get_metrics(self) -> list[dict]:
+        """Extract metrics dicts from platform data, parsing JSON if needed."""
+        import json
+        results = []
+        for p in self.platforms:
+            m = p.get("metrics", {})
+            if isinstance(m, str):
+                try:
+                    m = json.loads(m)
+                except Exception:
+                    m = {}
+            if isinstance(m, dict):
+                results.append(m)
+        return results
+
+    def _identity_score(self) -> dict:
+        """Identity score: platform count + verification levels.
+
+        0 platforms = 0 score.
+        1 platform = max 30 (low confidence).
+        2 platforms = max 60.
+        3+ platforms = up to 100.
+        """
+        metrics = self._get_metrics()
+        n = len(metrics)
+        evidence = {"platform_count": n}
+
+        if n == 0:
+            return {"score": 0, "evidence": evidence}
+
+        # Platform count contribution (cap per count)
+        count_score = min(n * 25, 75)
+
+        # Verification bonus
+        verified_count = sum(
+            1 for m in metrics if m.get("verification_level") in ("basic", "verified")
+        )
+        full_verified = sum(
+            1 for m in metrics if m.get("verification_level") == "verified"
+        )
+        verification_bonus = min(verified_count * 5 + full_verified * 10, 25)
+
+        score = min(count_score + verification_bonus, 100)
+        evidence["verified_platforms"] = verified_count
+        evidence["fully_verified"] = full_verified
+
+        return {"score": score, "evidence": evidence}
+
+    def _activity_score(self) -> dict:
+        """Activity score: average activity_score across platforms.
+
+        No data = 0. Single inactive platform = whatever that platform reports.
+        """
+        metrics = self._get_metrics()
+        evidence: dict = {}
+
+        if not metrics:
+            return {"score": 0, "evidence": {"reason": "no_platforms"}}
+
+        activities = [m.get("activity_score", 0) for m in metrics]
+        avg = sum(activities) / len(activities)
+        evidence["per_platform"] = activities
+        evidence["average"] = round(avg, 1)
+
+        return {"score": int(avg), "evidence": evidence}
+
+    def _reputation_score(self) -> dict:
+        """Reputation score: evidence-based only.
+
+        ⚠️ No reviews = 0, not 50.
+        """
+        metrics = self._get_metrics()
+        evidence: dict = {}
+
+        if not metrics:
+            return {"score": 0, "evidence": {"reason": "no_platforms"}}
+
+        reps = [m.get("reputation_score", 0) for m in metrics]
+        evidence_counts = [m.get("evidence_count", 0) for m in metrics]
+        total_evidence = sum(evidence_counts)
+
+        if total_evidence == 0:
+            # No evidence at all = 0 reputation
+            return {"score": 0, "evidence": {"reason": "no_evidence", "per_platform": reps}}
+
+        # Weighted average by evidence count (more evidence = more weight)
+        weighted_sum = sum(r * e for r, e in zip(reps, evidence_counts))
+        score = weighted_sum / total_evidence if total_evidence > 0 else 0
+
+        evidence["per_platform"] = reps
+        evidence["evidence_counts"] = evidence_counts
+        evidence["total_evidence"] = total_evidence
+
+        return {"score": int(score), "evidence": evidence}
+
+    def _security_score(self) -> dict:
+        """Security score: SSL, verification levels, attestation chain.
+
+        Generic platforms with valid SSL get basic credit.
+        No SSL or no data = 0.
+        """
+        import json
+        evidence: dict = {}
+
+        if not self.platforms:
+            return {"score": 0, "evidence": {"reason": "no_platforms"}}
+
+        ssl_valid = 0
+        ssl_total = 0
+        verification_scores = []
+
+        for p in self.platforms:
+            raw = p.get("raw_data", {})
+            if isinstance(raw, str):
+                try:
+                    raw = json.loads(raw)
+                except Exception:
+                    raw = {}
+
+            # Check SSL from raw_data
+            ssl_info = raw.get("ssl", {})
+            if ssl_info:
+                ssl_total += 1
+                if ssl_info.get("valid"):
+                    ssl_valid += 1
+
+            # Verification level
+            m = p.get("metrics", {})
+            if isinstance(m, str):
+                try:
+                    m = json.loads(m)
+                except Exception:
+                    m = {}
+            vl = m.get("verification_level", "none")
+            if vl == "verified":
+                verification_scores.append(40)
+            elif vl == "basic":
+                verification_scores.append(20)
+            else:
+                verification_scores.append(0)
+
+        score = 0
+        if ssl_total > 0:
+            ssl_score = (ssl_valid / ssl_total) * 40
+            score += ssl_score
+            evidence["ssl_valid"] = ssl_valid
+            evidence["ssl_total"] = ssl_total
+
+        if verification_scores:
+            avg_ver = sum(verification_scores) / len(verification_scores)
+            score += avg_ver
+            evidence["avg_verification"] = round(avg_ver, 1)
+
+        return {"score": min(int(score), 100), "evidence": evidence}

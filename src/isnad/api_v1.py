@@ -243,7 +243,22 @@ async def lifespan(app: FastAPI):
             await _db.migrate_from_memory(_identities, _trust_chain, _revocation_registry)
         except Exception:
             pass
+    # Start platform worker
+    global _worker
+    if _db is not None:
+        try:
+            from isnad.worker import PlatformWorker
+            _worker = PlatformWorker(_db)
+            await _worker.start()
+        except Exception:
+            pass  # Worker is optional
     yield
+    # Stop worker
+    if _worker is not None:
+        try:
+            await _worker.stop()
+        except Exception:
+            pass
     if _db is not None:
         try:
             await _db.close()
@@ -867,6 +882,73 @@ async def update_agent_profile(agent_id: str, body: AgentUpdateRequest, request:
 # ---------------------------------------------------------------------------
 # App factory (convenience — can also just include the router in an existing app)
 # ---------------------------------------------------------------------------
+
+# ---------------------------------------------------------------------------
+# Trust Report & Worker Endpoints
+# ---------------------------------------------------------------------------
+
+class TrustReportResponse(BaseModel):
+    agent_id: str
+    overall_score: int
+    decay_factor: float
+    platform_count: int
+    scores: dict
+    computed_at: str
+
+
+@router.get("/agents/{agent_id}/trust-report", response_model=TrustReportResponse)
+async def get_trust_report(agent_id: str):
+    """Full trust report with breakdown from platform data."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    platform_data = await _db.get_platform_data(agent_id)
+
+    from isnad.trustscore.scorer_v2 import PlatformTrustCalculator
+    calc = PlatformTrustCalculator(platform_data)
+    report = calc.compute_report()
+
+    return TrustReportResponse(
+        agent_id=agent_id,
+        overall_score=report["overall_score"],
+        decay_factor=report["decay_factor"],
+        platform_count=report["platform_count"],
+        scores=report["scores"],
+        computed_at=report["computed_at"],
+    )
+
+
+@router.post("/admin/scan/{agent_id}")
+async def trigger_scan(agent_id: str, key_record: dict = Depends(require_api_key)):
+    """Trigger a manual platform scan for an agent. Requires admin API key."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    from isnad.worker import PlatformWorker
+    worker = PlatformWorker(_db)
+    results = await worker.scan_agent(agent_id)
+
+    return {
+        "agent_id": agent_id,
+        "platforms_scanned": len(results),
+        "results": [{"platform": r["platform"], "url": r["url"], "alive": r["alive"]} for r in results],
+    }
+
+
+# ---------------------------------------------------------------------------
+# Worker reference (set during lifespan)
+# ---------------------------------------------------------------------------
+
+_worker = None
+
 
 def create_app(*, allowed_origins: list[str] | None = None,
                use_lifespan: bool = True) -> FastAPI:
