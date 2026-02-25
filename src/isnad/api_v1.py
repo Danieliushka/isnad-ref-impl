@@ -114,6 +114,63 @@ class HealthResponse(BaseModel):
 
 
 # ---------------------------------------------------------------------------
+# Agent Registration models
+# ---------------------------------------------------------------------------
+
+class PlatformEntry(BaseModel):
+    name: str
+    url: str = ""
+
+class AgentRegisterRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field("", max_length=1000)
+    agent_type: str = Field("autonomous", pattern=r"^(autonomous|tool-calling|human-supervised)$")
+    platforms: list[PlatformEntry] = []
+    capabilities: list[str] = []
+    offerings: str = Field("", max_length=2000)
+    avatar_url: str | None = None
+    contact_email: str | None = None
+
+class AgentRegisterResponse(BaseModel):
+    agent_id: str
+    public_key: str
+    api_key: str
+    created_at: str
+    message: str = "Store your API key securely — it will not be shown again."
+
+class AgentProfileResponse(BaseModel):
+    agent_id: str
+    name: str
+    description: str = ""
+    agent_type: str = "autonomous"
+    public_key: str = ""
+    platforms: list[dict] = []
+    capabilities: list[str] = []
+    offerings: str = ""
+    avatar_url: str | None = None
+    contact_email: str | None = None
+    trust_score: float = 0.0
+    is_certified: bool = False
+    created_at: str = ""
+
+class AgentUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    agent_type: str | None = Field(None, pattern=r"^(autonomous|tool-calling|human-supervised)$")
+    platforms: list[PlatformEntry] | None = None
+    capabilities: list[str] | None = None
+    offerings: str | None = None
+    avatar_url: str | None = None
+    contact_email: str | None = None
+
+class AgentListResponse(BaseModel):
+    agents: list[AgentProfileResponse]
+    total: int
+    page: int
+    limit: int
+
+
+# ---------------------------------------------------------------------------
 # In-memory state (shared with the main app or injected)
 # ---------------------------------------------------------------------------
 
@@ -547,6 +604,264 @@ async def explorer_detail(agent_id: str):
         )
 
     raise HTTPException(status_code=404, detail=f"Agent '{agent_id}' not found")
+
+
+# ---------------------------------------------------------------------------
+# Agent Registration Endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/agents/register", response_model=AgentRegisterResponse)
+async def register_agent(body: AgentRegisterRequest):
+    """Register a new agent. Generates Ed25519 keypair and API key server-side."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    import uuid
+    import json
+    from nacl.signing import SigningKey
+
+    # Generate Ed25519 keypair
+    signing_key = SigningKey.generate()
+    public_key_hex = signing_key.verify_key.encode().hex()
+
+    # Generate API key
+    raw_api_key = f"isnad_{secrets.token_urlsafe(32)}"
+    api_key_hash = hashlib.sha256(raw_api_key.encode()).hexdigest()
+
+    agent_id = str(uuid.uuid4())
+
+    metadata = {
+        "description": body.description,
+        "agent_type": body.agent_type,
+    }
+
+    # Create agent in DB
+    result = await _db.create_agent(
+        agent_id=agent_id,
+        public_key=public_key_hex,
+        name=body.name,
+        metadata=metadata,
+    )
+
+    # Update additional fields
+    update_fields = {
+        "agent_type": body.agent_type,
+        "platforms": json.dumps([p.model_dump() for p in body.platforms]),
+        "capabilities": json.dumps(body.capabilities),
+        "offerings": body.offerings or "",
+        "api_key_hash": api_key_hash,
+    }
+    if body.avatar_url:
+        update_fields["avatar_url"] = body.avatar_url
+    if body.contact_email:
+        update_fields["contact_email"] = body.contact_email
+
+    await _db.update_agent(agent_id, **update_fields)
+
+    return AgentRegisterResponse(
+        agent_id=agent_id,
+        public_key=public_key_hex,
+        api_key=raw_api_key,
+        created_at=result["created_at"],
+    )
+
+
+@router.get("/agents", response_model=AgentListResponse)
+async def list_agents(
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    agent_type: str | None = Query(None),
+    platform: str | None = Query(None),
+    search: str | None = Query(None),
+):
+    """List agents with pagination and filters."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    import json
+
+    offset = (page - 1) * limit
+
+    # Build query with filters
+    conditions = []
+    params = []
+    param_idx = 1
+
+    if agent_type:
+        conditions.append(f"agent_type = ${param_idx}")
+        params.append(agent_type)
+        param_idx += 1
+
+    if platform:
+        conditions.append(f"platforms::text ILIKE ${param_idx}")
+        params.append(f"%{platform}%")
+        param_idx += 1
+
+    if search:
+        conditions.append(f"name ILIKE ${param_idx}")
+        params.append(f"%{search}%")
+        param_idx += 1
+
+    where = ""
+    if conditions:
+        where = "WHERE " + " AND ".join(conditions)
+
+    async with _db._pool.acquire() as conn:
+        count_row = await conn.fetchrow(f"SELECT COUNT(*) as cnt FROM agents {where}", *params)
+        total = count_row["cnt"]
+
+        rows = await conn.fetch(
+            f"SELECT * FROM agents {where} ORDER BY created_at DESC LIMIT ${param_idx} OFFSET ${param_idx + 1}",
+            *params, limit, offset,
+        )
+
+    agents = []
+    for r in rows:
+        r = dict(r)
+        platforms_raw = r.get("platforms", "[]")
+        if isinstance(platforms_raw, str):
+            try:
+                platforms_raw = json.loads(platforms_raw)
+            except Exception:
+                platforms_raw = []
+
+        caps_raw = r.get("capabilities", "[]")
+        if isinstance(caps_raw, str):
+            try:
+                caps_raw = json.loads(caps_raw)
+            except Exception:
+                caps_raw = []
+
+        meta = r.get("metadata", "{}")
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+
+        agents.append(AgentProfileResponse(
+            agent_id=r["id"],
+            name=r.get("name", ""),
+            description=meta.get("description", ""),
+            agent_type=r.get("agent_type", "autonomous"),
+            public_key=r.get("public_key", ""),
+            platforms=platforms_raw if isinstance(platforms_raw, list) else [],
+            capabilities=caps_raw if isinstance(caps_raw, list) else [],
+            offerings=r.get("offerings", "") or "",
+            avatar_url=r.get("avatar_url"),
+            contact_email=r.get("contact_email"),
+            trust_score=r.get("trust_score", 0.0) or 0.0,
+            is_certified=bool(r.get("is_certified", False)),
+            created_at=r.get("created_at", ""),
+        ))
+
+    return AgentListResponse(agents=agents, total=total, page=page, limit=limit)
+
+
+@router.get("/agents/{agent_id}", response_model=AgentProfileResponse)
+async def get_agent_profile(agent_id: str):
+    """Get full public profile of an agent."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    import json
+
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    platforms_raw = agent.get("platforms", "[]")
+    if isinstance(platforms_raw, str):
+        try:
+            platforms_raw = json.loads(platforms_raw)
+        except Exception:
+            platforms_raw = []
+
+    caps_raw = agent.get("capabilities", "[]")
+    if isinstance(caps_raw, str):
+        try:
+            caps_raw = json.loads(caps_raw)
+        except Exception:
+            caps_raw = []
+
+    meta = agent.get("metadata", "{}")
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except Exception:
+            meta = {}
+
+    return AgentProfileResponse(
+        agent_id=agent["id"],
+        name=agent.get("name", ""),
+        description=meta.get("description", ""),
+        agent_type=agent.get("agent_type", "autonomous"),
+        public_key=agent.get("public_key", ""),
+        platforms=platforms_raw if isinstance(platforms_raw, list) else [],
+        capabilities=caps_raw if isinstance(caps_raw, list) else [],
+        offerings=agent.get("offerings", "") or "",
+        avatar_url=agent.get("avatar_url"),
+        contact_email=agent.get("contact_email"),
+        trust_score=agent.get("trust_score", 0.0) or 0.0,
+        is_certified=bool(agent.get("is_certified", False)),
+        created_at=agent.get("created_at", ""),
+    )
+
+
+@router.patch("/agents/{agent_id}", response_model=AgentProfileResponse)
+async def update_agent_profile(agent_id: str, body: AgentUpdateRequest, request: Request):
+    """Update agent profile. Requires API key in X-API-Key header."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    import json
+
+    # Validate API key against this agent
+    api_key = request.headers.get("X-API-Key")
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Missing API key")
+
+    api_key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    if agent.get("api_key_hash") != api_key_hash:
+        raise HTTPException(status_code=403, detail="Invalid API key for this agent")
+
+    # Build update fields
+    update_fields = {}
+    if body.name is not None:
+        update_fields["name"] = body.name
+    if body.agent_type is not None:
+        update_fields["agent_type"] = body.agent_type
+    if body.platforms is not None:
+        update_fields["platforms"] = json.dumps([p.model_dump() for p in body.platforms])
+    if body.capabilities is not None:
+        update_fields["capabilities"] = json.dumps(body.capabilities)
+    if body.offerings is not None:
+        update_fields["offerings"] = body.offerings
+    if body.avatar_url is not None:
+        update_fields["avatar_url"] = body.avatar_url
+    if body.contact_email is not None:
+        update_fields["contact_email"] = body.contact_email
+    if body.description is not None:
+        # Update metadata.description
+        meta = agent.get("metadata", "{}")
+        if isinstance(meta, str):
+            try:
+                meta = json.loads(meta)
+            except Exception:
+                meta = {}
+        meta["description"] = body.description
+        update_fields["metadata"] = json.dumps(meta)
+
+    if update_fields:
+        await _db.update_agent(agent_id, **update_fields)
+
+    # Return updated profile
+    return await get_agent_profile(agent_id)
 
 
 # ---------------------------------------------------------------------------

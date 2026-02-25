@@ -109,6 +109,114 @@ export async function getIdentity(
   return res.json();
 }
 
+/* ── Agent Registration ── */
+
+export interface PlatformEntry {
+  name: string;
+  url: string;
+}
+
+export interface RegisterAgentRequest {
+  name: string;
+  description: string;
+  agent_type: "autonomous" | "tool-calling" | "human-supervised";
+  platforms: PlatformEntry[];
+  capabilities: string[];
+  offerings: string;
+  avatar_url?: string;
+  contact_email?: string;
+}
+
+export interface RegisterAgentResponse {
+  agent_id: string;
+  public_key: string;
+  api_key: string;
+  created_at: string;
+  message: string;
+}
+
+export async function registerAgent(
+  data: RegisterAgentRequest
+): Promise<RegisterAgentResponse> {
+  const res = await fetch(`${API_BASE}/agents/register`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Registration failed" }));
+    throw new Error(err.detail || "Registration failed");
+  }
+  return res.json();
+}
+
+export interface AgentProfile {
+  agent_id: string;
+  name: string;
+  description: string;
+  agent_type: string;
+  public_key: string;
+  platforms: PlatformEntry[];
+  capabilities: string[];
+  offerings: string;
+  avatar_url: string | null;
+  contact_email: string | null;
+  trust_score: number;
+  is_certified: boolean;
+  created_at: string;
+}
+
+export interface AgentListResponse {
+  agents: AgentProfile[];
+  total: number;
+  page: number;
+  limit: number;
+}
+
+export async function listAgents(params?: {
+  page?: number;
+  limit?: number;
+  agent_type?: string;
+  platform?: string;
+  search?: string;
+}): Promise<AgentListResponse> {
+  const sp = new URLSearchParams();
+  if (params?.page) sp.set("page", String(params.page));
+  if (params?.limit) sp.set("limit", String(params.limit));
+  if (params?.agent_type) sp.set("agent_type", params.agent_type);
+  if (params?.platform) sp.set("platform", params.platform);
+  if (params?.search) sp.set("search", params.search);
+  const res = await fetch(`${API_BASE}/agents?${sp}`);
+  if (!res.ok) throw new Error(`List agents failed: ${res.status}`);
+  return res.json();
+}
+
+export async function getAgentProfile(agentId: string): Promise<AgentProfile> {
+  const res = await fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}`);
+  if (!res.ok) throw new Error(`Agent not found: ${res.status}`);
+  return res.json();
+}
+
+export async function updateAgentProfile(
+  agentId: string,
+  apiKey: string,
+  data: Partial<RegisterAgentRequest>
+): Promise<AgentProfile> {
+  const res = await fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}`, {
+    method: "PATCH",
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": apiKey,
+    },
+    body: JSON.stringify(data),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ detail: "Update failed" }));
+    throw new Error(err.detail || "Update failed");
+  }
+  return res.json();
+}
+
 /* ── Trust Score v2 (real platform data) ── */
 
 export interface SignalDetail {
