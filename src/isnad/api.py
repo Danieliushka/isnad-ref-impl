@@ -7,7 +7,7 @@ Verify agent attestations, compute trust scores, manage identity chains.
 import os
 import time
 from typing import Optional
-from fastapi import FastAPI, HTTPException, Header
+from fastapi import FastAPI, Depends, HTTPException, Header, Request
 from pydantic import BaseModel
 
 import sys
@@ -15,12 +15,19 @@ sys.path.insert(0, os.path.dirname(__file__))
 from nacl.encoding import HexEncoder
 from isnad.core import TrustChain, Attestation, AgentIdentity, RevocationEntry, RevocationRegistry, KeyRotation
 from isnad.delegation import Delegation, DelegationRegistry
+from isnad.security import (
+    apply_security, limiter, require_write_auth, logger,
+    health_check_with_db, StrictAttestRequest, StrictIdentityRequest,
+)
 
 app = FastAPI(
     title="isnad API",
     description="Agent Trust Protocol — verify attestations, compute trust scores, manage identity chains.",
-    version="0.1.0",
+    version="0.3.0",
 )
+
+# Apply security: CORS, rate limiting, structured logging, security headers
+apply_security(app)
 
 # --- In-memory store (demo) ---
 identities: dict[str, AgentIdentity] = {}
@@ -31,14 +38,11 @@ delegation_registry = DelegationRegistry(revocation_registry=revocation_registry
 
 # --- Models ---
 
-class CreateIdentityRequest(BaseModel):
-    name: Optional[str] = None
+class CreateIdentityRequest(StrictIdentityRequest):
+    pass
 
-class AttestRequest(BaseModel):
-    subject_id: str
-    witness_id: str
-    task: str
-    evidence: str = ""
+class AttestRequest(StrictAttestRequest):
+    pass
 
 class VerifyRequest(BaseModel):
     subject: str
@@ -67,17 +71,20 @@ def root():
     }
 
 @app.post("/identity")
-def create_identity(req: CreateIdentityRequest):
-    """Create a new agent identity with Ed25519 keypair."""
+@limiter.limit("10/minute")
+def create_identity(request: Request, req: CreateIdentityRequest, _auth: str = Depends(require_write_auth)):
+    """Create a new agent identity with Ed25519 keypair. Requires API key."""
     identity = AgentIdentity()
     identities[identity.agent_id] = identity
+    logger.info("identity_created", extra={"agent_id": identity.agent_id})
     return {
         "agent_id": identity.agent_id,
         "public_key": identity.public_key_hex,
     }
 
 @app.post("/attest")
-def create_attestation(req: AttestRequest):
+@limiter.limit("30/minute")
+def create_attestation(request: Request, req: AttestRequest, _auth: str = Depends(require_write_auth)):
     """Create a signed attestation: witness attests that subject completed a task."""
     if req.witness_id not in identities:
         raise HTTPException(404, f"Witness identity {req.witness_id} not found. Create it first via /identity")
@@ -166,7 +173,8 @@ def batch_verify(req: BatchVerifyRequest):
     }
 
 @app.get("/trust-score/{agent_id}")
-def get_trust_score(agent_id: str, scope: Optional[str] = None):
+@limiter.limit("60/minute")
+def get_trust_score(request: Request, agent_id: str, scope: Optional[str] = None):
     """Get trust score for an agent based on their attestation history."""
     score = trust_chain.trust_score(agent_id, scope)
     attestations = trust_chain._by_subject.get(agent_id, [])
@@ -231,7 +239,8 @@ class RevokeRequest(BaseModel):
 
 
 @app.post("/revoke")
-def revoke(req: RevokeRequest):
+@limiter.limit("10/minute")
+def revoke(request: Request, req: RevokeRequest, _auth: str = Depends(require_write_auth)):
     """Revoke an agent or attestation. Revoked agents get zero trust score."""
     if req.revoked_by not in identities:
         raise HTTPException(404, f"Revoker identity {req.revoked_by} not found")
@@ -266,8 +275,10 @@ def get_revocations(target_id: str):
 
 
 @app.get("/health")
-def health():
-    return {"status": "ok", "timestamp": time.time()}
+async def health():
+    """Enhanced health check with DB connectivity."""
+    db = getattr(app.state, "db", None)
+    return await health_check_with_db(db)
 
 
 # --- Atlas TrustScore Integration ---
@@ -322,7 +333,8 @@ class SubDelegationRequest(BaseModel):
 # --- Delegation Endpoints ---
 
 @app.post("/delegations")
-def create_delegation(req: DelegationRequest):
+@limiter.limit("10/minute")
+def create_delegation(request: Request, req: DelegationRequest, _auth: str = Depends(require_write_auth)):
     """Create a new delegation of authority."""
     if req.delegator_id not in identities:
         raise HTTPException(status_code=404, detail=f"Delegator {req.delegator_id} not found")
@@ -339,7 +351,8 @@ def create_delegation(req: DelegationRequest):
     return {"delegation_hash": d.content_hash, "delegation": d.to_dict()}
 
 @app.post("/delegations/sub-delegate")
-def sub_delegate(req: SubDelegationRequest):
+@limiter.limit("10/minute")
+def sub_delegate(request: Request, req: SubDelegationRequest, _auth: str = Depends(require_write_auth)):
     """Create a sub-delegation from an existing delegation."""
     if req.delegator_id not in identities:
         raise HTTPException(status_code=404, detail=f"Delegator {req.delegator_id} not found")
@@ -492,7 +505,8 @@ async def get_policy(name: str):
 
 
 @app.post("/policies", tags=["policy"], status_code=201)
-async def create_policy(body: PolicyCreateModel):
+@limiter.limit("10/minute")
+async def create_policy(request: Request, body: PolicyCreateModel, _auth: str = Depends(require_write_auth)):
     """Create a custom trust policy."""
     if body.name in policies:
         raise HTTPException(409, f"Policy '{body.name}' already exists")
@@ -564,7 +578,7 @@ async def evaluate_policy_batch(name: str, agents: list[PolicyEvaluateModel]):
 
 
 @app.delete("/policies/{name}", tags=["policy"])
-async def delete_policy(name: str):
+async def delete_policy(name: str, _auth: str = Depends(require_write_auth)):
     """Delete a trust policy."""
     if name not in policies:
         raise HTTPException(404, f"Policy '{name}' not found")
@@ -588,7 +602,8 @@ class RegisterAgentRequest(BaseModel):
 
 
 @app.post("/discovery/register", tags=["discovery"])
-async def discovery_register(req: RegisterAgentRequest):
+@limiter.limit("10/minute")
+async def discovery_register(request: Request, req: RegisterAgentRequest, _auth: str = Depends(require_write_auth)):
     """Register an agent in the discovery registry (auto-signs with agent's key)."""
     if req.agent_id not in identities:
         raise HTTPException(404, f"Agent '{req.agent_id}' not found. Create identity first.")
@@ -646,7 +661,7 @@ async def discovery_get(agent_id: str):
 
 
 @app.delete("/discovery/agents/{agent_id}", tags=["discovery"])
-async def discovery_unregister(agent_id: str):
+async def discovery_unregister(agent_id: str, _auth: str = Depends(require_write_auth)):
     """Remove an agent from discovery registry."""
     if not discovery_registry.get(agent_id):
         raise HTTPException(404, f"Agent '{agent_id}' not in discovery registry")
@@ -679,7 +694,8 @@ class CertificationResult(BaseModel):
 
 
 @app.post("/certify", tags=["certification"])
-def certify_agent(req: CertifyRequest):
+@limiter.limit("10/minute")
+def certify_agent(request: Request, req: CertifyRequest, _auth: str = Depends(require_write_auth)):
     """
     Certify an AI agent through isnad's 36-module trust evaluation.
     

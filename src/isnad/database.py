@@ -57,7 +57,13 @@ class Database:
 
     async def connect(self) -> None:
         """Open connection pool and ensure schema is applied."""
-        self._pool = await asyncpg.create_pool(self.database_url, min_size=2, max_size=10)
+        self._pool = await asyncpg.create_pool(
+            self.database_url,
+            min_size=2,
+            max_size=10,
+            command_timeout=30,
+            timeout=10,  # connection acquisition timeout
+        )
         await self._apply_migrations()
 
     async def close(self) -> None:
