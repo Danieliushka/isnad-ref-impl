@@ -1110,6 +1110,22 @@ async def trigger_scan(agent_id: str, _admin: bool = Depends(require_admin_key))
     }
 
 
+@router.delete("/admin/agents/{agent_id}")
+async def admin_delete_agent(agent_id: str, _admin: bool = Depends(require_admin_key)):
+    """Delete an agent (admin only). Use for cleaning up test/duplicate registrations."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    deleted = await _db.delete_agent(agent_id)
+    if not deleted:
+        raise HTTPException(status_code=500, detail="Delete failed")
+    return {"deleted": agent_id, "name": agent.get("name", "unknown")}
+
+
 # ---------------------------------------------------------------------------
 # ACN Integration — /verify/trust endpoint
 # ---------------------------------------------------------------------------

@@ -172,6 +172,21 @@ export default function AgentProfilePage() {
           />
 
           <div className="relative flex flex-col md:flex-row items-center md:items-start gap-8">
+            {/* Avatar */}
+            <div className="shrink-0">
+              {agent.avatar_url ? (
+                <img
+                  src={agent.avatar_url}
+                  alt={agent.name}
+                  className="w-[120px] h-[120px] rounded-full object-cover border-2 border-white/[0.1]"
+                />
+              ) : (
+                <div className="w-[120px] h-[120px] rounded-full bg-white/[0.06] border-2 border-white/[0.1] flex items-center justify-center text-4xl font-bold text-zinc-400">
+                  {agent.name.charAt(0).toUpperCase()}
+                </div>
+              )}
+            </div>
+
             {/* Trust Score Ring */}
             <div className="shrink-0">
               <TrustScoreRing score={score} size={160} strokeWidth={6} />
@@ -280,6 +295,8 @@ export default function AgentProfilePage() {
               {agent.platforms.map((p, i) => {
                 const key = p.name.toLowerCase();
                 const icon = platformIcons[key] || '🌐';
+                const Wrapper = p.url ? 'a' : 'div';
+                const wrapperProps = p.url ? { href: p.url, target: '_blank', rel: 'noopener noreferrer' } : {};
                 return (
                   <motion.div
                     key={i}
@@ -287,27 +304,21 @@ export default function AgentProfilePage() {
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ delay: 0.5 + i * 0.08 }}
                   >
-                    <Card className="flex items-center gap-4">
-                      <div className="w-10 h-10 rounded-xl bg-white/[0.06] flex items-center justify-center text-lg">
-                        {icon}
-                      </div>
-                      <div className="flex-1 min-w-0">
-                        <span className="text-sm font-medium text-zinc-300 capitalize">{p.name}</span>
+                    <Wrapper {...wrapperProps} className={p.url ? 'block cursor-pointer' : 'block'}>
+                      <Card className={`flex items-center gap-4 transition-all duration-300 ${p.url ? 'hover:border-isnad-teal/30 hover:scale-[1.02] hover:bg-white/[0.04]' : ''}`}>
+                        <div className="w-10 h-10 rounded-xl bg-white/[0.06] flex items-center justify-center text-lg">
+                          {icon}
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <span className="text-sm font-medium text-zinc-300 capitalize">{p.name}</span>
+                        </div>
                         {p.url && (
-                          <a
-                            href={p.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block text-xs text-isnad-teal/80 hover:text-isnad-teal truncate transition-colors"
-                          >
-                            {p.url}
-                          </a>
+                          <svg className="w-4 h-4 text-zinc-600 group-hover:text-isnad-teal transition-colors" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path d="M7 17l9.2-9.2M17 17V7H7" />
+                          </svg>
                         )}
-                      </div>
-                      <svg className="w-4 h-4 text-zinc-600" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                        <path d="M7 17l9.2-9.2M17 17V7H7" />
-                      </svg>
-                    </Card>
+                      </Card>
+                    </Wrapper>
                   </motion.div>
                 );
               })}

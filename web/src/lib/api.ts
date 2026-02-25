@@ -1,7 +1,7 @@
 import type { Agent, TrustCheckResult } from "./types";
 
 const API_BASE =
-  process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000/api/v1";
+  process.env.NEXT_PUBLIC_API_URL || "/api/v1";
 
 export async function checkAgent(agentId: string): Promise<TrustCheckResult> {
   const res = await fetch(`${API_BASE}/check/${encodeURIComponent(agentId)}`);
