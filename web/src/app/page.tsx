@@ -152,9 +152,9 @@ export default function HomePage() {
       <div className="glow-divider max-w-4xl mx-auto" />
 
       {/* Register CTA */}
-      <AnimatedSection id="register-cta" className="py-20 px-6">
+      <AnimatedSection id="register-cta" className="py-24 px-4 sm:px-6">
         <div className="max-w-3xl mx-auto">
-          <Card className="p-8 md:p-12 text-center border-isnad-teal/10">
+          <Card className="p-6 sm:p-8 md:p-12 text-center border-isnad-teal/10">
             <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-isnad-teal/10 border border-isnad-teal/20 mb-6">
               <svg width="28" height="28" viewBox="0 0 32 32" fill="none">
                 <circle cx="16" cy="12" r="5" stroke="#00d4aa" strokeWidth="1.5" />
@@ -190,7 +190,7 @@ export default function HomePage() {
       <div className="glow-divider max-w-4xl mx-auto" />
 
       {/* How It Works */}
-      <AnimatedSection id="how-it-works" className="py-24 px-6">
+      <AnimatedSection id="how-it-works" className="py-24 px-4 sm:px-6">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-16">
             <span className="text-[10px] font-mono tracking-[0.2em] uppercase text-isnad-teal/60 mb-3 block">
@@ -229,7 +229,7 @@ export default function HomePage() {
       <div className="glow-divider max-w-4xl mx-auto" />
 
       {/* Features Grid */}
-      <AnimatedSection id="features" className="py-24 px-6">
+      <AnimatedSection id="features" className="py-24 px-4 sm:px-6">
         <div className="max-w-5xl mx-auto">
           <div className="text-center mb-16">
             <span className="text-[10px] font-mono tracking-[0.2em] uppercase text-isnad-teal/60 mb-3 block">
@@ -260,7 +260,7 @@ export default function HomePage() {
       <div className="glow-divider max-w-4xl mx-auto" />
 
       {/* Trust Explorer Preview */}
-      <AnimatedSection id="explorer" className="py-24 px-6">
+      <AnimatedSection id="explorer" className="py-24 px-4 sm:px-6">
         <div className="max-w-4xl mx-auto">
           <div className="text-center mb-12">
             <span className="text-[10px] font-mono tracking-[0.2em] uppercase text-isnad-teal/60 mb-3 block">
@@ -331,7 +331,7 @@ export default function HomePage() {
       <ApiTabs />
 
       {/* CTA */}
-      <AnimatedSection id="cta" className="py-32 px-6">
+      <AnimatedSection id="cta" className="py-24 sm:py-32 px-4 sm:px-6">
         <div className="max-w-2xl mx-auto text-center">
           <h2 className="font-heading text-3xl md:text-5xl font-bold tracking-tight mb-6">
             Start Verifying Agents
@@ -359,9 +359,9 @@ export default function HomePage() {
       {/* Footer */}
       <footer
         id="footer"
-        className="border-t border-white/[0.04] py-12 px-6"
+        className="border-t border-white/[0.04] py-10 sm:py-12 px-4 sm:px-6"
       >
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-6">
+        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 md:gap-6">
           <div className="flex items-center gap-1.5">
             <span className="text-lg font-bold text-white">isnad</span>
             <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
