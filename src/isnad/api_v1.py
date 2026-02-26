@@ -12,6 +12,7 @@ Public endpoints (no auth required):
 
 from __future__ import annotations
 
+import json
 import hashlib
 import hmac
 import os
@@ -87,6 +88,26 @@ class AgentDetail(BaseModel):
     last_checked: Optional[str] = None
     metadata: dict = {}
     recent_attestations: list[dict] = []
+
+
+class BadgeOut(BaseModel):
+    """Badge response model."""
+    id: str
+    agent_id: str
+    badge_type: str
+    granted_at: str
+    expires_at: Optional[str] = None
+    metadata: dict = {}
+
+
+class BadgeCreate(BaseModel):
+    """Badge creation request."""
+    badge_type: str = Field(..., description="isnad_verified | early_adopter | trusted_reviewer")
+    expires_at: Optional[str] = None
+    metadata: dict = {}
+
+
+VALID_BADGE_TYPES = {"isnad_verified", "early_adopter", "trusted_reviewer"}
 
 
 class StatsResponse(BaseModel):
@@ -187,29 +208,6 @@ class AgentProfileResponse(BaseModel):
     is_certified: bool = False
     created_at: str = ""
 
-class BadgeResponse(BaseModel):
-    """Badge record."""
-    id: str
-    agent_id: str
-    badge_type: str
-    status: str
-    granted_at: Optional[str] = None
-    expires_at: Optional[str] = None
-    created_at: str
-
-
-class BadgeApplyRequest(BaseModel):
-    """Request to apply for a badge."""
-    badge_type: str = Field("verified", pattern=r"^(verified)$")
-
-
-class BadgeApplyResponse(BaseModel):
-    """Result of badge application."""
-    badge: BadgeResponse
-    auto_approved: bool
-    message: str
-
-
 class AgentUpdateRequest(BaseModel):
     name: str | None = None
     description: str | None = None
@@ -266,6 +264,13 @@ def configure(
 
 _api_key_header = APIKeyHeader(name="X-API-Key", auto_error=False)
 
+FREE_TIER_MONTHLY_LIMIT = 50
+
+
+def _current_month() -> str:
+    """Return current month as 'YYYY-MM'."""
+    return datetime.now(timezone.utc).strftime("%Y-%m")
+
 
 async def require_api_key(request: Request, api_key: str = Security(_api_key_header)) -> dict:
     """Dependency that validates the X-API-Key header against the database."""
@@ -280,6 +285,45 @@ async def require_api_key(request: Request, api_key: str = Security(_api_key_hea
         log_auth_failure(ip, "invalid API key", request.url.path)
         raise HTTPException(status_code=403, detail="Invalid API key")
     return key_record
+
+
+async def require_api_key_with_rate_limit(
+    request: Request, api_key: str = Security(_api_key_header)
+) -> dict:
+    """Validate API key and enforce freemium rate limits.
+
+    Returns the agent row (with api_tier). Raises 429 if free tier exceeded.
+    """
+    ip = request.client.host if request.client else "unknown"
+    if not api_key:
+        log_auth_failure(ip, "missing API key", request.url.path)
+        raise HTTPException(status_code=401, detail="Missing API key")
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    agent = await _db.get_agent_by_api_key(api_key)
+    if agent is None:
+        log_auth_failure(ip, "invalid API key", request.url.path)
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    tier = agent.get("api_tier", "free")
+    month = _current_month()
+
+    if tier == "free":
+        usage = await _db.get_api_usage(agent["id"], month)
+        if usage >= FREE_TIER_MONTHLY_LIMIT:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Free tier limit exceeded ({FREE_TIER_MONTHLY_LIMIT} calls/month). Upgrade to paid for unlimited access.",
+            )
+
+    # Track usage
+    await _db.increment_api_usage(agent["id"], month)
+
+    # Attach to request state for downstream use
+    request.state.agent = agent
+    request.state.api_tier = tier
+    return agent
 
 
 # ---------------------------------------------------------------------------
@@ -489,6 +533,43 @@ async def health():
     return HealthResponse()
 
 
+class UsageResponse(BaseModel):
+    """API usage stats for the authenticated agent."""
+    agent_id: str
+    api_tier: str
+    month: str
+    calls_used: int
+    calls_remaining: int | None = Field(None, description="null = unlimited (paid tier)")
+    monthly_limit: int | None = Field(None, description="null = unlimited (paid tier)")
+
+
+@router.get("/usage", response_model=UsageResponse)
+async def get_usage(request: Request, agent: dict = Depends(require_api_key_with_rate_limit)):
+    """Get API usage for the current month. Requires X-API-Key header."""
+    month = _current_month()
+    usage = await _db.get_api_usage(agent["id"], month)
+    tier = agent.get("api_tier", "free")
+
+    if tier == "free":
+        return UsageResponse(
+            agent_id=agent["id"],
+            api_tier=tier,
+            month=month,
+            calls_used=usage,
+            calls_remaining=max(0, FREE_TIER_MONTHLY_LIMIT - usage),
+            monthly_limit=FREE_TIER_MONTHLY_LIMIT,
+        )
+    else:
+        return UsageResponse(
+            agent_id=agent["id"],
+            api_tier=tier,
+            month=month,
+            calls_used=usage,
+            calls_remaining=None,
+            monthly_limit=None,
+        )
+
+
 @router.post("/keys", response_model=ApiKeyResponse)
 async def create_api_key(body: ApiKeyRequest):
     """Generate a new API key. The raw key is returned once; only its hash is stored."""
@@ -522,7 +603,7 @@ async def stats():
 
 @router.get("/check/{agent_id}", response_model=TrustCheckResult)
 @limiter.limit("60/minute")
-async def check_agent(agent_id: str, request: Request):
+async def check_agent(agent_id: str, request: Request, _caller: dict = Depends(require_api_key_with_rate_limit)):
     """
     **Flagship endpoint** — Run a full 36-module trust evaluation.
     """
@@ -565,7 +646,7 @@ async def check_agent(agent_id: str, request: Request):
 
 @router.get("/verify/{agent_id}", response_model=VerifyResponse)
 @limiter.limit("60/minute")
-async def verify_agent(agent_id: str, request: Request):
+async def verify_agent(agent_id: str, request: Request, _caller: dict = Depends(require_api_key_with_rate_limit)):
     """
     ACN Verify endpoint — returns trust score with credit tier mapping.
 
@@ -613,6 +694,13 @@ async def verify_agent(agent_id: str, request: Request):
 
     now = datetime.now(timezone.utc)
     cert_id = hashlib.sha256(f"verify:{agent_id}:{now.isoformat()}".encode()).hexdigest()[:16]
+
+    # Auto-grant isnad_verified badge if trust_score >= 0.7 (score >= 7 on 10-point scale)
+    if trust_score >= 0.7:
+        try:
+            await _auto_grant_badge(agent_id, "isnad_verified", {"granted_by": "auto_verify", "trust_score": trust_score})
+        except Exception:
+            pass  # Non-critical — don't fail verify if badge grant fails
 
     return VerifyResponse(
         agent_id=agent_id,
@@ -736,7 +824,73 @@ async def explorer_detail(agent_id: str):
 
 
 # ---------------------------------------------------------------------------
-# Agent Registration Endpoints
+# Simple Registration Endpoint (Kit the Fox compatible)
+# ---------------------------------------------------------------------------
+
+class SimpleRegisterRequest(BaseModel):
+    """Minimal registration request for programmatic agent onboarding."""
+    agent_name: str = Field(..., min_length=1, max_length=100)
+    description: str = Field("", max_length=1000)
+    homepage_url: str | None = None
+
+
+class SimpleRegisterResponse(BaseModel):
+    """Response with agent_id and api_key."""
+    agent_id: str
+    api_key: str
+
+
+@router.post("/register", response_model=SimpleRegisterResponse, status_code=201)
+@limiter.limit("10/minute")
+async def simple_register(request: Request, body: SimpleRegisterRequest):
+    """Register a new agent with minimal fields.
+
+    Designed for programmatic registration by other agents (e.g. Kit the Fox).
+    Returns agent_id + api_key. The api_key is shown only once.
+    """
+    sanitize_input(body.agent_name, "agent_name")
+    sanitize_input(body.description, "description")
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    import uuid
+    import json as _json
+    from nacl.signing import SigningKey
+
+    # Check for duplicate name
+    existing = await _db.get_agent_by_name(body.agent_name)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Agent with name '{body.agent_name}' already exists")
+
+    # Generate keypair + API key
+    signing_key = SigningKey.generate()
+    public_key_hex = signing_key.verify_key.encode().hex()
+    raw_api_key = f"isnad_{secrets.token_urlsafe(32)}"
+    api_key_hash = hashlib.sha256(raw_api_key.encode()).hexdigest()
+    agent_id = str(uuid.uuid4())
+
+    metadata = {"description": body.description}
+    if body.homepage_url:
+        metadata["homepage_url"] = body.homepage_url
+
+    await _db.create_agent(
+        agent_id=agent_id,
+        public_key=public_key_hex,
+        name=body.agent_name,
+        metadata=metadata,
+    )
+
+    # Store API key hash and homepage
+    update_fields: dict = {"api_key_hash": api_key_hash}
+    if body.homepage_url:
+        update_fields["platforms"] = _json.dumps([{"name": "homepage", "url": body.homepage_url}])
+    await _db.update_agent(agent_id, **update_fields)
+
+    return SimpleRegisterResponse(agent_id=agent_id, api_key=raw_api_key)
+
+
+# ---------------------------------------------------------------------------
+# Agent Registration Endpoints (full)
 # ---------------------------------------------------------------------------
 
 @router.post("/agents/register", response_model=AgentRegisterResponse)
@@ -1044,6 +1198,62 @@ async def get_trust_report(agent_id: str):
     )
 
 
+# ─── Badge endpoints ───────────────────────────────────────────────
+
+@router.get("/agents/{agent_id}/badges", response_model=list[BadgeOut])
+async def get_agent_badges(agent_id: str):
+    """Get all badges for an agent."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+    rows = await _db.get_badges(agent_id)
+    return [
+        BadgeOut(
+            id=r["id"],
+            agent_id=r["agent_id"],
+            badge_type=r["badge_type"],
+            granted_at=str(r["granted_at"]),
+            expires_at=str(r["expires_at"]) if r.get("expires_at") else None,
+            metadata=json.loads(r["metadata"]) if isinstance(r.get("metadata"), str) else (r.get("metadata") or {}),
+        )
+        for r in rows
+    ]
+
+
+@router.post("/agents/{agent_id}/badges", response_model=BadgeOut, status_code=201)
+async def create_agent_badge(agent_id: str, body: BadgeCreate, _admin: bool = Depends(require_admin_key)):
+    """Create a badge for an agent (admin only)."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+    if body.badge_type not in VALID_BADGE_TYPES:
+        raise HTTPException(status_code=400, detail=f"Invalid badge type. Must be one of: {VALID_BADGE_TYPES}")
+
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    badge_id = hashlib.sha256(f"badge:{agent_id}:{body.badge_type}:{time.time()}".encode()).hexdigest()[:16]
+    created = await _db.create_badge(badge_id, agent_id, body.badge_type, body.expires_at, body.metadata)
+    if not created:
+        raise HTTPException(status_code=409, detail="Badge already exists for this agent")
+
+    return BadgeOut(
+        id=badge_id,
+        agent_id=agent_id,
+        badge_type=body.badge_type,
+        granted_at=datetime.now(timezone.utc).isoformat() + "Z",
+        expires_at=body.expires_at,
+        metadata=body.metadata,
+    )
+
+
+async def _auto_grant_badge(agent_id: str, badge_type: str, metadata: Optional[dict] = None):
+    """Auto-grant a badge if not already present. Called internally."""
+    if _db is None:
+        return
+    badge_id = hashlib.sha256(f"badge:{agent_id}:{badge_type}:auto".encode()).hexdigest()[:16]
+    await _db.create_badge(badge_id, agent_id, badge_type, metadata=metadata or {})
+
+
 @router.get("/trust-score-v2/{agent_id}")
 async def trust_score_v2_compat(agent_id: str, request: Request):
     """Backward-compatible trust-score-v2 endpoint.
@@ -1131,113 +1341,6 @@ async def trigger_scan(agent_id: str, _admin: bool = Depends(require_admin_key))
         "platforms_scanned": len(results),
         "results": [{"platform": r["platform"], "url": r["url"], "alive": r["alive"]} for r in results],
     }
-
-
-# ---------------------------------------------------------------------------
-# Badge Endpoints
-# ---------------------------------------------------------------------------
-
-@router.post("/badges/apply", response_model=BadgeApplyResponse)
-@limiter.limit("10/minute")
-async def apply_for_badge(request: Request, body: BadgeApplyRequest, key_record: dict = Depends(require_api_key)):
-    """Apply for a badge. Auto-grants if agent meets criteria:
-    trust_score >= 6.0 AND completed_verifications >= 3.
-    """
-    if _db is None:
-        raise HTTPException(status_code=503, detail="Database not available")
-
-    # Resolve agent from API key
-    agent_id = key_record.get("agent_id")
-    if not agent_id:
-        # Find agent by api_key_hash
-        api_key = request.headers.get("X-API-Key", "")
-        key_hash = hashlib.sha256(api_key.encode()).hexdigest()
-        async with _db._pool.acquire() as conn:
-            row = await conn.fetchrow("SELECT id FROM agents WHERE api_key_hash = $1", key_hash)
-        if not row:
-            raise HTTPException(status_code=404, detail="Agent not found for this API key")
-        agent_id = row["id"]
-
-    # Check if badge already exists
-    existing = await _db.get_badge(agent_id, body.badge_type)
-    if existing and existing["status"] == "active":
-        return BadgeApplyResponse(
-            badge=BadgeResponse(**{k: str(v) if v is not None else None for k, v in existing.items()}),
-            auto_approved=False,
-            message="Badge already active.",
-        )
-
-    # Check auto-grant criteria
-    agent = await _db.get_agent(agent_id)
-    if not agent:
-        raise HTTPException(status_code=404, detail="Agent not found")
-
-    trust_score = agent.get("trust_score", 0.0) or 0.0
-
-    # Count completed trust checks as "verifications"
-    async with _db._pool.acquire() as conn:
-        check_row = await conn.fetchrow(
-            "SELECT COUNT(*) as cnt FROM trust_checks WHERE agent_id = $1", agent_id
-        )
-    completed_verifications = check_row["cnt"] if check_row else 0
-
-    auto_approved = trust_score >= 6.0 and completed_verifications >= 3
-    now = datetime.now(timezone.utc)
-
-    if auto_approved:
-        status = "active"
-        granted_at = now.isoformat()
-        expires_at = (now + timedelta(days=365)).isoformat()
-    else:
-        status = "pending"
-        granted_at = None
-        expires_at = None
-
-    badge = await _db.create_badge(
-        agent_id=agent_id,
-        badge_type=body.badge_type,
-        status=status,
-        granted_at=granted_at,
-        expires_at=expires_at,
-    )
-
-    badge_resp = BadgeResponse(
-        id=str(badge["id"]),
-        agent_id=str(badge["agent_id"]),
-        badge_type=str(badge["badge_type"]),
-        status=str(badge["status"]),
-        granted_at=str(badge["granted_at"]) if badge["granted_at"] else None,
-        expires_at=str(badge["expires_at"]) if badge["expires_at"] else None,
-        created_at=str(badge["created_at"]),
-    )
-
-    if auto_approved:
-        msg = "Badge auto-approved! Your trust score and verification history meet the criteria."
-    else:
-        msg = f"Badge application submitted (pending review). Current: trust_score={trust_score:.1f}, verifications={completed_verifications}. Need: trust_score>=6.0 AND verifications>=3."
-
-    return BadgeApplyResponse(badge=badge_resp, auto_approved=auto_approved, message=msg)
-
-
-@router.get("/agents/{agent_id}/badges", response_model=list[BadgeResponse])
-async def get_agent_badges(agent_id: str):
-    """Get all badges for an agent (public endpoint)."""
-    if _db is None:
-        raise HTTPException(status_code=503, detail="Database not available")
-
-    badges = await _db.get_badges(agent_id)
-    result = []
-    for b in badges:
-        result.append(BadgeResponse(
-            id=str(b["id"]),
-            agent_id=str(b["agent_id"]),
-            badge_type=str(b["badge_type"]),
-            status=str(b["status"]),
-            granted_at=str(b["granted_at"]) if b["granted_at"] else None,
-            expires_at=str(b["expires_at"]) if b["expires_at"] else None,
-            created_at=str(b["created_at"]),
-        ))
-    return result
 
 
 @router.delete("/admin/agents/{agent_id}")
