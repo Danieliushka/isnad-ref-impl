@@ -15,7 +15,7 @@ function AnimatedCounter({
   const [display, setDisplay] = useState(0);
 
   useEffect(() => {
-    if (!isInView) return;
+    if (!isInView || target === 0) return;
     const ctrl = animate(0, target, {
       duration: 2,
       ease: 'easeOut',
@@ -35,13 +35,44 @@ function AnimatedCounter({
   );
 }
 
-const stats = [
-  { target: 1000, suffix: '+', label: 'Tests Passing' },
-  { target: 36, suffix: '', label: 'Modules' },
-  { target: 6, suffix: '', label: 'Trust Categories' },
-];
+interface StatsData {
+  tests: number;
+  modules: number;
+  agents: number;
+}
+
+const FALLBACK: StatsData = { tests: 1029, modules: 36, agents: 8 };
 
 export default function StatsBar() {
+  const [data, setData] = useState<StatsData>(FALLBACK);
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const [healthRes, agentsRes] = await Promise.all([
+          fetch('/api/v1/health', { next: { revalidate: 0 } } as RequestInit),
+          fetch('/api/v1/agents?limit=1', { next: { revalidate: 0 } } as RequestInit),
+        ]);
+        const health = await healthRes.json();
+        const agents = await agentsRes.json();
+        setData({
+          tests: health.tests ?? FALLBACK.tests,
+          modules: health.modules ?? FALLBACK.modules,
+          agents: agents.total ?? FALLBACK.agents,
+        });
+      } catch {
+        // keep fallback
+      }
+    }
+    load();
+  }, []);
+
+  const stats = [
+    { target: data.tests, suffix: '+', label: 'Tests Passing' },
+    { target: data.modules, suffix: '', label: 'Trust Modules' },
+    { target: data.agents, suffix: '', label: 'Registered Agents' },
+  ];
+
   return (
     <section className="py-20 px-6">
       <div className="max-w-4xl mx-auto">
