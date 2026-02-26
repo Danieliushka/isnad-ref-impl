@@ -33,7 +33,7 @@ dependencies = [
 [project.optional-dependencies]
 api = ["fastapi>=0.100", "uvicorn>=0.20", "httpx>=0.24"]
 mcp = ["mcp>=0.1"]
-dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "httpx>=0.24"]
+dev = ["pytest>=7.0", "pytest-asyncio>=0.21", "httpx>=0.24", "respx>=0.20"]
 all = ["isnad[api,mcp,dev]"]
 
 [project.scripts]
