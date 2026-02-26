@@ -46,7 +46,7 @@ export default function AgentCard({ agent, index = 0 }: AgentCardProps) {
     >
       <Link href={`/agents/${agent.agent_id}`}>
         <div
-          className="group relative bg-white/[0.03] backdrop-blur-xl border border-white/[0.07] rounded-2xl p-5 h-[200px] overflow-hidden transition-all duration-500 hover:border-isnad-teal/25 hover:bg-white/[0.05] hover:shadow-[0_0_60px_-12px_rgba(0,212,170,0.15)] hover:scale-[1.02] cursor-pointer"
+          className="group relative bg-white/[0.03] backdrop-blur-xl border border-white/[0.07] rounded-2xl p-4 sm:p-5 min-h-[180px] sm:min-h-[200px] overflow-hidden transition-all duration-500 hover:border-isnad-teal/25 hover:bg-white/[0.05] hover:shadow-[0_0_60px_-12px_rgba(0,212,170,0.15)] hover:scale-[1.02] cursor-pointer"
         >
           {/* Top row: Avatar + Score ring + Info */}
           <div className="flex items-start gap-4">

@@ -110,7 +110,7 @@ export default function ExplorerPage() {
     return (
       <button
         onClick={onClick}
-        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 border ${
+        className={`px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-200 border whitespace-nowrap shrink-0 ${
           active
             ? 'bg-isnad-teal/15 text-isnad-teal border-isnad-teal/30'
             : 'bg-white/[0.03] text-zinc-500 border-white/[0.06] hover:text-zinc-300 hover:border-white/[0.12]'
@@ -162,15 +162,15 @@ export default function ExplorerPage() {
           </div>
 
           {/* Filter pills */}
-          <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono mr-1">Type</span>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono mr-1 shrink-0">Type</span>
             {typeFilters.map(f => (
               <Pill key={f.key} active={typeFilter === f.key} onClick={() => { setTypeFilter(f.key); setPage(1); }}>
                 {f.label}
               </Pill>
             ))}
-            <div className="w-px h-5 bg-white/[0.08] mx-2" />
-            <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono mr-1">Score</span>
+            <div className="w-px h-5 bg-white/[0.08] mx-2 shrink-0" />
+            <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono mr-1 shrink-0">Score</span>
             {scoreFilters.map(f => (
               <Pill key={f.key} active={scoreFilter === f.key} onClick={() => setScoreFilter(f.key)}>
                 {f.label}
@@ -179,8 +179,8 @@ export default function ExplorerPage() {
           </div>
 
           {/* Sort */}
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono">Sort</span>
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-none">
+            <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono shrink-0">Sort</span>
             {sortOptions.map(s => (
               <Pill key={s.key} active={sort === s.key} onClick={() => setSort(s.key)}>
                 {s.label}
