@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import TrustScoreRing from '@/components/trust-score-ring';
 import RadarChart from '@/components/radar-chart';
-import { getAgentProfile, getTrustScoreV2, type AgentProfile, type TrustScoreV2Response } from '@/lib/api';
+import { getAgentProfile, getTrustScoreV2, getAgentBadges, type AgentProfile, type TrustScoreV2Response, type BadgeRecord } from '@/lib/api';
 
 const typeLabels: Record<string, { label: string; color: string }> = {
   autonomous: { label: 'Autonomous', color: 'text-purple-400 bg-purple-500/15 border-purple-500/20' },
@@ -56,6 +56,7 @@ export default function AgentProfilePage() {
 
   const [agent, setAgent] = useState<AgentProfile | null>(null);
   const [trustV2, setTrustV2] = useState<TrustScoreV2Response | null>(null);
+  const [badges, setBadges] = useState<BadgeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -66,15 +67,17 @@ export default function AgentProfilePage() {
     async function load() {
       try {
         setLoading(true);
-        const [profile, v2] = await Promise.allSettled([
+        const [profile, v2, badgesResult] = await Promise.allSettled([
           getAgentProfile(agentId),
           getTrustScoreV2(agentId),
+          getAgentBadges(agentId),
         ]);
 
         if (cancelled) return;
         if (profile.status === 'fulfilled') setAgent(profile.value);
         else throw new Error('Agent not found');
         if (v2.status === 'fulfilled') setTrustV2(v2.value);
+        if (badgesResult.status === 'fulfilled') setBadges(badgesResult.value);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load');
       } finally {
@@ -211,6 +214,23 @@ export default function AgentProfilePage() {
                       ✓ Certified
                     </span>
                   )}
+                  {badges.filter(b => b.status === 'active').map(b => (
+                    <span
+                      key={b.id}
+                      className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-[11px] font-medium text-emerald-400 bg-emerald-500/10 border border-emerald-500/20"
+                      title={`Granted: ${b.granted_at ? new Date(b.granted_at).toLocaleDateString() : 'N/A'}${b.expires_at ? ` · Expires: ${new Date(b.expires_at).toLocaleDateString()}` : ''}`}
+                    >
+                      🛡️ isnad {b.badge_type.charAt(0).toUpperCase() + b.badge_type.slice(1)}
+                    </span>
+                  ))}
+                  {badges.filter(b => b.status === 'pending').map(b => (
+                    <span
+                      key={b.id}
+                      className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-[11px] font-medium text-yellow-400 bg-yellow-500/10 border border-yellow-500/20"
+                    >
+                      ⏳ {b.badge_type} (pending)
+                    </span>
+                  ))}
                 </div>
               </div>
 

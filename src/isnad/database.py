@@ -357,6 +357,49 @@ class Database:
             "last_fetched": now,
         }
 
+    # ─── Badges ─────────────────────────────────────────────────
+
+    async def get_badges(self, agent_id: str) -> list[dict]:
+        """Get all badges for an agent."""
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM badges WHERE agent_id = $1 ORDER BY created_at DESC",
+                agent_id,
+            )
+        return [_record_to_dict(r) for r in rows]
+
+    async def get_badge(self, agent_id: str, badge_type: str) -> Optional[dict]:
+        """Get a specific badge for an agent."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM badges WHERE agent_id = $1 AND badge_type = $2",
+                agent_id, badge_type,
+            )
+        return _record_to_dict(row) if row else None
+
+    async def create_badge(self, agent_id: str, badge_type: str, status: str = "pending",
+                           granted_at: Optional[str] = None, expires_at: Optional[str] = None) -> dict:
+        """Create a badge record."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO badges (agent_id, badge_type, status, granted_at, expires_at)
+                   VALUES ($1, $2, $3, $4, $5)
+                   ON CONFLICT (agent_id, badge_type) DO UPDATE
+                   SET status = EXCLUDED.status, granted_at = EXCLUDED.granted_at, expires_at = EXCLUDED.expires_at
+                   RETURNING *""",
+                agent_id, badge_type, status, granted_at, expires_at,
+            )
+        return _record_to_dict(row)
+
+    async def update_badge_status(self, agent_id: str, badge_type: str, status: str) -> Optional[dict]:
+        """Update badge status."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "UPDATE badges SET status = $3 WHERE agent_id = $1 AND badge_type = $2 RETURNING *",
+                agent_id, badge_type, status,
+            )
+        return _record_to_dict(row) if row else None
+
     async def get_platform_data(self, agent_id: str) -> list[dict]:
         """Get all platform data for an agent."""
         async with self._pool.acquire() as conn:

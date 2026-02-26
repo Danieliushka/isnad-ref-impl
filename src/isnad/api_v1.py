@@ -187,6 +187,29 @@ class AgentProfileResponse(BaseModel):
     is_certified: bool = False
     created_at: str = ""
 
+class BadgeResponse(BaseModel):
+    """Badge record."""
+    id: str
+    agent_id: str
+    badge_type: str
+    status: str
+    granted_at: Optional[str] = None
+    expires_at: Optional[str] = None
+    created_at: str
+
+
+class BadgeApplyRequest(BaseModel):
+    """Request to apply for a badge."""
+    badge_type: str = Field("verified", pattern=r"^(verified)$")
+
+
+class BadgeApplyResponse(BaseModel):
+    """Result of badge application."""
+    badge: BadgeResponse
+    auto_approved: bool
+    message: str
+
+
 class AgentUpdateRequest(BaseModel):
     name: str | None = None
     description: str | None = None
@@ -1108,6 +1131,113 @@ async def trigger_scan(agent_id: str, _admin: bool = Depends(require_admin_key))
         "platforms_scanned": len(results),
         "results": [{"platform": r["platform"], "url": r["url"], "alive": r["alive"]} for r in results],
     }
+
+
+# ---------------------------------------------------------------------------
+# Badge Endpoints
+# ---------------------------------------------------------------------------
+
+@router.post("/badges/apply", response_model=BadgeApplyResponse)
+@limiter.limit("10/minute")
+async def apply_for_badge(request: Request, body: BadgeApplyRequest, key_record: dict = Depends(require_api_key)):
+    """Apply for a badge. Auto-grants if agent meets criteria:
+    trust_score >= 6.0 AND completed_verifications >= 3.
+    """
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    # Resolve agent from API key
+    agent_id = key_record.get("agent_id")
+    if not agent_id:
+        # Find agent by api_key_hash
+        api_key = request.headers.get("X-API-Key", "")
+        key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+        async with _db._pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT id FROM agents WHERE api_key_hash = $1", key_hash)
+        if not row:
+            raise HTTPException(status_code=404, detail="Agent not found for this API key")
+        agent_id = row["id"]
+
+    # Check if badge already exists
+    existing = await _db.get_badge(agent_id, body.badge_type)
+    if existing and existing["status"] == "active":
+        return BadgeApplyResponse(
+            badge=BadgeResponse(**{k: str(v) if v is not None else None for k, v in existing.items()}),
+            auto_approved=False,
+            message="Badge already active.",
+        )
+
+    # Check auto-grant criteria
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    trust_score = agent.get("trust_score", 0.0) or 0.0
+
+    # Count completed trust checks as "verifications"
+    async with _db._pool.acquire() as conn:
+        check_row = await conn.fetchrow(
+            "SELECT COUNT(*) as cnt FROM trust_checks WHERE agent_id = $1", agent_id
+        )
+    completed_verifications = check_row["cnt"] if check_row else 0
+
+    auto_approved = trust_score >= 6.0 and completed_verifications >= 3
+    now = datetime.now(timezone.utc)
+
+    if auto_approved:
+        status = "active"
+        granted_at = now.isoformat()
+        expires_at = (now + timedelta(days=365)).isoformat()
+    else:
+        status = "pending"
+        granted_at = None
+        expires_at = None
+
+    badge = await _db.create_badge(
+        agent_id=agent_id,
+        badge_type=body.badge_type,
+        status=status,
+        granted_at=granted_at,
+        expires_at=expires_at,
+    )
+
+    badge_resp = BadgeResponse(
+        id=str(badge["id"]),
+        agent_id=str(badge["agent_id"]),
+        badge_type=str(badge["badge_type"]),
+        status=str(badge["status"]),
+        granted_at=str(badge["granted_at"]) if badge["granted_at"] else None,
+        expires_at=str(badge["expires_at"]) if badge["expires_at"] else None,
+        created_at=str(badge["created_at"]),
+    )
+
+    if auto_approved:
+        msg = "Badge auto-approved! Your trust score and verification history meet the criteria."
+    else:
+        msg = f"Badge application submitted (pending review). Current: trust_score={trust_score:.1f}, verifications={completed_verifications}. Need: trust_score>=6.0 AND verifications>=3."
+
+    return BadgeApplyResponse(badge=badge_resp, auto_approved=auto_approved, message=msg)
+
+
+@router.get("/agents/{agent_id}/badges", response_model=list[BadgeResponse])
+async def get_agent_badges(agent_id: str):
+    """Get all badges for an agent (public endpoint)."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    badges = await _db.get_badges(agent_id)
+    result = []
+    for b in badges:
+        result.append(BadgeResponse(
+            id=str(b["id"]),
+            agent_id=str(b["agent_id"]),
+            badge_type=str(b["badge_type"]),
+            status=str(b["status"]),
+            granted_at=str(b["granted_at"]) if b["granted_at"] else None,
+            expires_at=str(b["expires_at"]) if b["expires_at"] else None,
+            created_at=str(b["created_at"]),
+        ))
+    return result
 
 
 @router.delete("/admin/agents/{agent_id}")

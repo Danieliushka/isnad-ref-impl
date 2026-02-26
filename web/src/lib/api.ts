@@ -273,6 +273,24 @@ export interface TrustScoreV2Response {
   platforms_checked: string[];
 }
 
+/* ── Badges ── */
+
+export interface BadgeRecord {
+  id: string;
+  agent_id: string;
+  badge_type: string;
+  status: string;
+  granted_at: string | null;
+  expires_at: string | null;
+  created_at: string;
+}
+
+export async function getAgentBadges(agentId: string): Promise<BadgeRecord[]> {
+  const res = await fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}/badges`);
+  if (!res.ok) return []; // graceful fallback
+  return res.json();
+}
+
 export async function getTrustScoreV2(
   agentId: string
 ): Promise<TrustScoreV2Response> {
