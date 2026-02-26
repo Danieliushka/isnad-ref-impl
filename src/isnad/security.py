@@ -63,7 +63,8 @@ logger = setup_structured_logging()
 
 # ─── Rate Limiter (slowapi) ───────────────────────────────────────
 
-limiter = Limiter(key_func=get_remote_address)
+_ratelimit_enabled = os.environ.get("RATELIMIT_ENABLED", "true").lower() != "false"
+limiter = Limiter(key_func=get_remote_address, enabled=_ratelimit_enabled)
 
 
 def rate_limit_exceeded_handler(request: Request, exc: RateLimitExceeded):

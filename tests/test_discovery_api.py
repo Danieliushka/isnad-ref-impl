@@ -2,6 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from isnad.api import app
+from tests.conftest import AUTH_HEADERS as H
 
 
 @pytest.fixture
@@ -11,7 +12,7 @@ def client():
 
 @pytest.fixture
 def agent_id(client):
-    resp = client.post("/identity", json={"name": "DiscoveryBot"})
+    resp = client.post("/identity", json={"name": "DiscoveryBot"}, headers=H)
     assert resp.status_code == 200
     return resp.json()["agent_id"]
 
@@ -23,7 +24,7 @@ class TestDiscoveryAPI:
             "name": "DiscoveryBot",
             "capabilities": ["search", "translate"],
             "endpoints": {"http": "http://localhost:9000"},
-        })
+        }, headers=H)
         assert resp.status_code == 200
         assert resp.json()["registered"] == agent_id
 
@@ -31,7 +32,7 @@ class TestDiscoveryAPI:
         resp = client.post("/discovery/register", json={
             "agent_id": "nonexistent",
             "name": "Ghost",
-        })
+        }, headers=H)
         assert resp.status_code == 404
 
     def test_list_agents(self, client, agent_id):
@@ -39,7 +40,7 @@ class TestDiscoveryAPI:
             "agent_id": agent_id,
             "name": "ListBot",
             "capabilities": ["qa"],
-        })
+        }, headers=H)
         resp = client.get("/discovery/agents")
         assert resp.status_code == 200
         agents = resp.json()["agents"]
@@ -50,7 +51,7 @@ class TestDiscoveryAPI:
             "agent_id": agent_id,
             "name": "CapBot",
             "capabilities": ["rare_skill"],
-        })
+        }, headers=H)
         resp = client.get("/discovery/agents?capability=rare_skill")
         assert resp.status_code == 200
         assert len(resp.json()["agents"]) >= 1
@@ -64,7 +65,7 @@ class TestDiscoveryAPI:
             "name": "ProfileBot",
             "capabilities": ["verify"],
             "metadata": {"version": "1.0"},
-        })
+        }, headers=H)
         resp = client.get(f"/discovery/agents/{agent_id}")
         assert resp.status_code == 200
         data = resp.json()
@@ -80,8 +81,8 @@ class TestDiscoveryAPI:
         client.post("/discovery/register", json={
             "agent_id": agent_id,
             "name": "ByeBot",
-        })
-        resp = client.delete(f"/discovery/agents/{agent_id}")
+        }, headers=H)
+        resp = client.delete(f"/discovery/agents/{agent_id}", headers=H)
         assert resp.status_code == 200
         assert resp.json()["unregistered"] == agent_id
 
@@ -89,5 +90,5 @@ class TestDiscoveryAPI:
         assert resp2.status_code == 404
 
     def test_unregister_unknown(self, client):
-        resp = client.delete("/discovery/agents/nonexistent")
+        resp = client.delete("/discovery/agents/nonexistent", headers=H)
         assert resp.status_code == 404

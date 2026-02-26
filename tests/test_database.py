@@ -12,17 +12,24 @@ from isnad.core import AgentIdentity, Attestation, TrustChain, RevocationRegistr
 
 @pytest_asyncio.fixture
 async def db(tmp_path):
-    """Fresh in-memory database for each test."""
+    """Fresh database for each test (truncates all tables)."""
     database = Database(str(tmp_path / "test.db"))
     await database.connect()
+    # Truncate all tables to ensure clean state per test
+    async with database._pool.acquire() as conn:
+        await conn.execute(
+            "TRUNCATE agents, attestations, certifications, api_keys, "
+            "trust_checks, platform_data CASCADE"
+        )
     yield database
     await database.close()
 
 
 @pytest.mark.asyncio
 async def test_schema_version(db):
-    row = await (await db._db.execute("SELECT MAX(version) FROM schema_version")).fetchone()
-    assert row[0] == 1
+    async with db._pool.acquire() as conn:
+        row = await conn.fetchval("SELECT MAX(version) FROM schema_version")
+    assert row >= 1
 
 
 # ─── Agents ────────────────────────────────────────────────────────
@@ -47,11 +54,11 @@ async def test_get_agent_by_pubkey(db):
 @pytest.mark.asyncio
 async def test_update_agent(db):
     await db.create_agent("agent:u1", "pk1")
-    ok = await db.update_agent("agent:u1", trust_score=0.85, is_certified=1)
+    ok = await db.update_agent("agent:u1", trust_score=0.85, is_certified=True)
     assert ok
     fetched = await db.get_agent("agent:u1")
     assert fetched["trust_score"] == 0.85
-    assert fetched["is_certified"] == 1
+    assert fetched["is_certified"] is True
 
 
 @pytest.mark.asyncio

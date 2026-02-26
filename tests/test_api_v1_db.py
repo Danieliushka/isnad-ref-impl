@@ -16,6 +16,12 @@ async def db(tmp_path):
     db_path = str(tmp_path / "test.db")
     database = Database(db_path)
     await database.connect()
+    # Clean state from prior test runs sharing the same PostgreSQL
+    async with database._pool.acquire() as conn:
+        await conn.execute(
+            "TRUNCATE agents, attestations, certifications, api_keys, "
+            "trust_checks, platform_data CASCADE"
+        )
     yield database
     await database.close()
 

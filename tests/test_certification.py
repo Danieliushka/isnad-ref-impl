@@ -2,8 +2,10 @@
 import pytest
 from fastapi.testclient import TestClient
 from isnad.api import app
+from tests.conftest import AUTH_HEADERS
 
 client = TestClient(app)
+H = AUTH_HEADERS
 
 
 class TestCertificationEndpoint:
@@ -11,7 +13,7 @@ class TestCertificationEndpoint:
 
     def test_certify_basic(self):
         """Basic certification with minimal info."""
-        resp = client.post("/certify", json={"agent_id": "test-agent-001"})
+        resp = client.post("/certify", headers=H, json={"agent_id": "test-agent-001"})
         assert resp.status_code == 200
         data = resp.json()
         assert "certified" in data
@@ -24,8 +26,8 @@ class TestCertificationEndpoint:
 
     def test_certify_with_wallet(self):
         """Certification with wallet address increases score."""
-        resp_no_wallet = client.post("/certify", json={"agent_id": "agent-a"})
-        resp_wallet = client.post("/certify", json={
+        resp_no_wallet = client.post("/certify", headers=H, json={"agent_id": "agent-a"})
+        resp_wallet = client.post("/certify", headers=H, json={
             "agent_id": "agent-b",
             "agent_wallet": "0x829d5313D6598f684817E3ae4605EF53480cc49a",
         })
@@ -33,7 +35,7 @@ class TestCertificationEndpoint:
 
     def test_certify_full_profile(self):
         """Full profile certification gets high confidence."""
-        resp = client.post("/certify", json={
+        resp = client.post("/certify", headers=H, json={
             "agent_id": "gendolf",
             "agent_wallet": "0x829d5313D6598f684817E3ae4605EF53480cc49a",
             "platform": "acp",
@@ -47,7 +49,7 @@ class TestCertificationEndpoint:
 
     def test_certify_returns_signed_attestation(self):
         """Certification returns a valid signature."""
-        resp = client.post("/certify", json={"agent_id": "test-sig"})
+        resp = client.post("/certify", headers=H, json={"agent_id": "test-sig"})
         data = resp.json()
         assert len(data["attestation_signature"]) > 10
         assert data["certification_id"]
@@ -56,11 +58,11 @@ class TestCertificationEndpoint:
 
     def test_certify_confidence_levels(self):
         """Different input completeness yields different confidence."""
-        low = client.post("/certify", json={"agent_id": "x"}).json()
-        medium = client.post("/certify", json={
+        low = client.post("/certify", headers=H, json={"agent_id": "x"}).json()
+        medium = client.post("/certify", headers=H, json={
             "agent_id": "x", "agent_wallet": "0xabc"
         }).json()
-        high = client.post("/certify", json={
+        high = client.post("/certify", headers=H, json={
             "agent_id": "x",
             "agent_wallet": "0xabc",
             "platform": "acp",
@@ -72,7 +74,7 @@ class TestCertificationEndpoint:
 
     def test_certify_details_breakdown(self):
         """Certification includes module category breakdown."""
-        resp = client.post("/certify", json={
+        resp = client.post("/certify", headers=H, json={
             "agent_id": "detail-test",
             "agent_wallet": "0x123",
             "platform": "ugig",
@@ -92,7 +94,7 @@ class TestCertificationEndpoint:
     def test_certify_threshold(self):
         """Agent needs >= 0.6 trust score to be certified."""
         # Full profile should pass
-        resp = client.post("/certify", json={
+        resp = client.post("/certify", headers=H, json={
             "agent_id": "full-agent",
             "agent_wallet": "0x829d5313D6598f684817E3ae4605EF53480cc49a",
             "platform": "acp",
@@ -118,12 +120,12 @@ class TestCertificationIntegration:
     def test_certify_with_attestation_history(self):
         """Agent with attestation history gets higher score."""
         # Create identities
-        id1 = client.post("/identity", json={"name": "certifier"}).json()
-        id2 = client.post("/identity", json={"name": "certified-agent"}).json()
+        id1 = client.post("/identity", headers=H, json={"name": "certifier"}).json()
+        id2 = client.post("/identity", headers=H, json={"name": "certified-agent"}).json()
 
         # Build attestation history
         for i in range(3):
-            client.post("/attest", json={
+            client.post("/attest", headers=H, json={
                 "subject_id": id2["agent_id"],
                 "witness_id": id1["agent_id"],
                 "task": f"task_{i}",
@@ -131,7 +133,7 @@ class TestCertificationIntegration:
             })
 
         # Certify — should have higher attestation chain score
-        resp = client.post("/certify", json={
+        resp = client.post("/certify", headers=H, json={
             "agent_id": id2["agent_id"],
             "agent_wallet": "0xabc",
             "platform": "acp",

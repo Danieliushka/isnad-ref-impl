@@ -2,6 +2,7 @@
 import pytest
 from fastapi.testclient import TestClient
 from isnad.api import app
+from tests.conftest import AUTH_HEADERS as H
 
 client = TestClient(app)
 
@@ -28,7 +29,7 @@ def test_get_policy_not_found():
 
 
 def test_create_and_delete_policy():
-    r = client.post("/policies", json={
+    r = client.post("/policies", headers=H, json={
         "name": "test_custom",
         "rules": [{
             "name": "high_trust",
@@ -44,7 +45,7 @@ def test_create_and_delete_policy():
     r = client.get("/policies/test_custom")
     assert r.status_code == 200
     # Delete
-    r = client.delete("/policies/test_custom")
+    r = client.delete("/policies/test_custom", headers=H)
     assert r.status_code == 200
     # Verify gone
     r = client.get("/policies/test_custom")
@@ -52,10 +53,10 @@ def test_create_and_delete_policy():
 
 
 def test_create_policy_conflict():
-    client.post("/policies", json={"name": "dup_test", "rules": [], "default_action": "allow"})
-    r = client.post("/policies", json={"name": "dup_test", "rules": [], "default_action": "allow"})
+    client.post("/policies", headers=H, json={"name": "dup_test", "rules": [], "default_action": "allow"})
+    r = client.post("/policies", headers=H, json={"name": "dup_test", "rules": [], "default_action": "allow"})
     assert r.status_code == 409
-    client.delete("/policies/dup_test")
+    client.delete("/policies/dup_test", headers=H)
 
 
 def test_evaluate_allowed():

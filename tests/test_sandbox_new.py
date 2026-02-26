@@ -115,12 +115,13 @@ def test_main_api_batch_verify():
     """Test batch verification endpoint on the main API."""
     from fastapi.testclient import TestClient
     from isnad.api import app
+    from tests.conftest import AUTH_HEADERS as H
     
     client = TestClient(app)
     
     # Create two identities
-    r1 = client.post("/identity", json={})
-    r2 = client.post("/identity", json={})
+    r1 = client.post("/identity", json={}, headers=H)
+    r2 = client.post("/identity", json={}, headers=H)
     a1 = r1.json()["agent_id"]
     a2 = r2.json()["agent_id"]
     
@@ -130,7 +131,7 @@ def test_main_api_batch_verify():
         "subject_id": a2,
         "task": "batch-test",
         "evidence": "test"
-    })
+    }, headers=H)
     assert att.status_code == 200
     
     # Batch verify (with one valid structure, one bad)

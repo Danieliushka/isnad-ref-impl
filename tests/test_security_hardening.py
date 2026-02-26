@@ -10,9 +10,19 @@ os.environ.setdefault("ADMIN_API_KEY", "test-admin-key-hardening")
 
 import pytest
 from fastapi.testclient import TestClient
+from isnad import api_v1
 from isnad.api_v1 import create_app
 
 app = create_app(allowed_origins=["*"], use_lifespan=False)
+
+
+@pytest.fixture(autouse=True)
+def _reset_api_v1_db():
+    """Ensure no stale DB reference from other tests."""
+    old_db = api_v1._db
+    api_v1._db = None
+    yield
+    api_v1._db = old_db
 client = TestClient(app)
 
 

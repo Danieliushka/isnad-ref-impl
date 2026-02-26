@@ -4,13 +4,13 @@ import pytest
 from unittest.mock import AsyncMock, patch
 
 # Set admin key before importing app
-os.environ["ADMIN_API_KEY"] = "test-admin-key-12345"
+os.environ.setdefault("ADMIN_API_KEY", "test-admin-key-12345")
 
 from fastapi.testclient import TestClient
 from isnad.api import app, identities, trust_chain
 
 client = TestClient(app)
-AUTH_HEADER = {"X-API-Key": "test-admin-key-12345"}
+AUTH_HEADER = {"X-API-Key": os.environ["ADMIN_API_KEY"]}
 
 
 @pytest.fixture(autouse=True)

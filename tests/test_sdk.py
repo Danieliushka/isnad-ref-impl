@@ -1,8 +1,24 @@
 """Tests for isnad_client.py SDK against live sandbox."""
+import socket
 import pytest
 from isnad.client import IsnadClient
 
 BASE = "http://localhost:8420"
+
+
+def _sandbox_available():
+    import urllib.request
+    try:
+        r = urllib.request.urlopen("http://localhost:8420/sandbox/health", timeout=2)
+        return r.status == 200
+    except Exception:
+        return False
+
+
+pytestmark = pytest.mark.skipif(
+    not _sandbox_available(),
+    reason="Requires live sandbox server on localhost:8420 with /sandbox endpoints",
+)
 
 
 @pytest.fixture
