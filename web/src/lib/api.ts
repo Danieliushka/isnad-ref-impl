@@ -214,6 +214,41 @@ export async function updateAgentProfile(
   return res.json();
 }
 
+/* ── Agent Explorer Detail ── */
+
+export interface AgentDetailResponse {
+  agent_id: string;
+  name: string;
+  public_key: string;
+  trust_score: number;
+  attestation_count: number;
+  is_certified: boolean;
+  last_checked: string | null;
+  metadata: {
+    agent_type?: string;
+    description?: string;
+    platforms?: PlatformEntry[];
+    capabilities?: string[];
+    offerings?: string;
+    avatar_url?: string;
+    contact_email?: string;
+  };
+  recent_attestations: Array<{
+    attestation_id: string;
+    attester_id: string;
+    attester_name: string;
+    scope: string;
+    value: number;
+    created_at: string;
+  }>;
+}
+
+export async function getAgentDetail(agentId: string): Promise<AgentDetailResponse> {
+  const res = await fetch(`${API_BASE}/explorer/${encodeURIComponent(agentId)}`);
+  if (!res.ok) throw new Error(`Agent not found: ${res.status}`);
+  return res.json();
+}
+
 /* ── Trust Score v2 (real platform data) ── */
 
 export interface SignalDetail {

@@ -4,17 +4,13 @@ WORKDIR /app
 COPY web/package.json web/package-lock.json* ./
 RUN npm ci
 COPY web/ .
-# Enable standalone output for Docker
-RUN echo 'module.exports={output:"standalone"};' > next.config.js || true
 RUN npm run build
 
 FROM node:22-alpine
 WORKDIR /app
-# If standalone output exists, use it; otherwise fall back to full build
-COPY --from=builder /app/.next .next
-COPY --from=builder /app/node_modules node_modules
-COPY --from=builder /app/package.json .
-COPY --from=builder /app/public public/ 2>/dev/null || true
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static .next/static
+COPY --from=builder /app/public public/
 
 EXPOSE 3000
-CMD ["npx", "next", "start", "-p", "3000"]
+CMD ["node", "server.js"]
