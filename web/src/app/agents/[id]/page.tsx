@@ -158,7 +158,7 @@ export default function AgentProfilePage() {
 
         {/* Hero Section */}
         <motion.div
-          className="relative bg-white/[0.02] backdrop-blur-xl border border-white/[0.06] rounded-3xl p-8 md:p-12 mb-8 overflow-hidden"
+          className="relative bg-white/[0.02] backdrop-blur-xl border border-white/[0.06] rounded-3xl p-6 sm:p-8 md:p-12 mb-8 overflow-hidden"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.6 }}
@@ -171,59 +171,65 @@ export default function AgentProfilePage() {
             }}
           />
 
-          <div className="relative flex flex-col md:flex-row items-center md:items-start gap-8">
-            {/* Avatar */}
-            <div className="shrink-0">
+          <div className="relative flex flex-col md:flex-row items-center md:items-start gap-6 md:gap-10">
+            {/* Avatar + Score grouped on mobile */}
+            <div className="flex flex-row md:flex-col items-center gap-5 md:gap-6 shrink-0">
+              {/* Avatar */}
               {agent.avatar_url ? (
                 <img
                   src={agent.avatar_url}
                   alt={agent.name}
-                  className="w-[120px] h-[120px] rounded-full object-cover border-2 border-white/[0.1]"
+                  className="w-20 h-20 md:w-[120px] md:h-[120px] rounded-full object-cover border-2 border-white/[0.1] shadow-lg shadow-black/20"
                 />
               ) : (
-                <div className="w-[120px] h-[120px] rounded-full bg-white/[0.06] border-2 border-white/[0.1] flex items-center justify-center text-4xl font-bold text-zinc-400">
+                <div className="w-20 h-20 md:w-[120px] md:h-[120px] rounded-full bg-white/[0.06] border-2 border-white/[0.1] flex items-center justify-center text-2xl md:text-4xl font-bold text-zinc-400 shadow-lg shadow-black/20">
                   {agent.name.charAt(0).toUpperCase()}
                 </div>
               )}
-            </div>
 
-            {/* Trust Score Ring */}
-            <div className="shrink-0">
-              <TrustScoreRing score={score} size={160} strokeWidth={6} />
+              {/* Trust Score Ring */}
+              <div className="hidden md:block">
+                <TrustScoreRing score={score} size={140} strokeWidth={5} />
+              </div>
+              <div className="block md:hidden">
+                <TrustScoreRing score={score} size={80} strokeWidth={4} />
+              </div>
             </div>
 
             {/* Agent Info */}
-            <div className="flex-1 text-center md:text-left">
-              <div className="flex flex-col md:flex-row items-center md:items-start gap-3 mb-3">
-                <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-white">
+            <div className="flex-1 text-center md:text-left min-w-0">
+              <div className="flex flex-col sm:flex-row items-center md:items-start gap-2.5 mb-4">
+                <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight text-white leading-tight">
                   {agent.name}
                 </h1>
-                <span className={`inline-flex items-center px-3 py-1 rounded-lg text-xs font-medium border ${typeInfo.color}`}>
-                  {typeInfo.label}
-                </span>
-                {agent.is_certified && (
-                  <span className="inline-flex items-center px-3 py-1 rounded-lg text-xs font-medium text-isnad-teal bg-isnad-teal/10 border border-isnad-teal/20">
-                    ✓ Certified
+                <div className="flex items-center gap-2 flex-wrap justify-center md:justify-start">
+                  <span className={`inline-flex items-center px-3 py-1 rounded-lg text-[11px] font-medium border ${typeInfo.color}`}>
+                    {typeInfo.label}
                   </span>
-                )}
+                  {agent.is_certified && (
+                    <span className="inline-flex items-center px-3 py-1 rounded-lg text-[11px] font-medium text-isnad-teal bg-isnad-teal/10 border border-isnad-teal/20">
+                      ✓ Certified
+                    </span>
+                  )}
+                </div>
               </div>
 
               {agent.description && (
-                <p className="text-zinc-400 text-sm leading-relaxed mb-4 max-w-xl">
+                <p className="text-zinc-400 text-sm leading-relaxed mb-5 max-w-xl">
                   {agent.description}
                 </p>
               )}
 
               {agent.offerings && (
-                <div className="mb-4">
-                  <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono">Offerings</span>
-                  <p className="text-zinc-300 text-sm mt-1">{agent.offerings}</p>
+                <div className="mb-5">
+                  <span className="text-[10px] text-zinc-600 uppercase tracking-widest font-mono block mb-1.5">Offerings</span>
+                  <p className="text-zinc-300 text-sm leading-relaxed">{agent.offerings}</p>
                 </div>
               )}
 
               {/* Meta row */}
-              <div className="flex flex-wrap items-center gap-4 text-[11px] text-zinc-600 font-mono">
-                <span>ID: {agent.agent_id.slice(0, 12)}…</span>
+              <div className="flex flex-wrap items-center justify-center md:justify-start gap-x-5 gap-y-1.5 text-[11px] text-zinc-600 font-mono pt-2 border-t border-white/[0.04]">
+                <span title={agent.agent_id}>ID: {agent.agent_id.slice(0, 12)}…</span>
                 <span>Registered: {new Date(agent.created_at).toLocaleDateString()}</span>
                 {trustV2 && <span>Confidence: {trustV2.total_confidence.toFixed(2)}</span>}
               </div>
