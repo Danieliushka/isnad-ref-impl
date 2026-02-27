@@ -10,7 +10,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import TrustScoreRing from '@/components/trust-score-ring';
 import RadarChart from '@/components/radar-chart';
-import { getAgentProfile, getTrustScoreV2, getAgentBadges, type AgentProfile, type TrustScoreV2Response, type BadgeRecord } from '@/lib/api';
+import { getAgentProfile, getTrustScoreV2, getAgentBadges, getAgentDetail, getTrustReport, type AgentProfile, type TrustScoreV2Response, type BadgeRecord, type AgentDetailResponse, type TrustReport } from '@/lib/api';
 
 const typeLabels: Record<string, { label: string; color: string }> = {
   autonomous: { label: 'Autonomous', color: 'text-purple-400 bg-purple-500/15 border-purple-500/20' },
@@ -57,6 +57,8 @@ export default function AgentProfilePage() {
   const [agent, setAgent] = useState<AgentProfile | null>(null);
   const [trustV2, setTrustV2] = useState<TrustScoreV2Response | null>(null);
   const [badges, setBadges] = useState<BadgeRecord[]>([]);
+  const [detail, setDetail] = useState<AgentDetailResponse | null>(null);
+  const [trustReport, setTrustReport] = useState<TrustReport | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -67,10 +69,12 @@ export default function AgentProfilePage() {
     async function load() {
       try {
         setLoading(true);
-        const [profile, v2, badgesResult] = await Promise.allSettled([
+        const [profile, v2, badgesResult, detailResult, reportResult] = await Promise.allSettled([
           getAgentProfile(agentId),
           getTrustScoreV2(agentId),
           getAgentBadges(agentId),
+          getAgentDetail(agentId),
+          getTrustReport(agentId),
         ]);
 
         if (cancelled) return;
@@ -78,6 +82,8 @@ export default function AgentProfilePage() {
         else throw new Error('Agent not found');
         if (v2.status === 'fulfilled') setTrustV2(v2.value);
         if (badgesResult.status === 'fulfilled') setBadges(badgesResult.value);
+        if (detailResult.status === 'fulfilled') setDetail(detailResult.value);
+        if (reportResult.status === 'fulfilled') setTrustReport(reportResult.value);
       } catch (e) {
         if (!cancelled) setError(e instanceof Error ? e.message : 'Failed to load');
       } finally {
@@ -373,6 +379,89 @@ export default function AgentProfilePage() {
                   >
                     {cap}
                   </span>
+                ))}
+              </div>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* Verification History (Trust Report) */}
+        {trustReport && (
+          <motion.div
+            className="mb-8"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.55 }}
+          >
+            <Card>
+              <h2 className="text-sm font-semibold text-zinc-300 mb-5 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
+                Verification Report
+              </h2>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 mb-5">
+                {Object.entries(trustReport.scores).map(([key, val]) => (
+                  <div key={key} className="bg-white/[0.03] border border-white/[0.06] rounded-xl p-4 text-center">
+                    <div className="text-2xl font-bold tabular-nums" style={{ color: getScoreColor(val.score) }}>
+                      {val.score}
+                    </div>
+                    <div className="text-[10px] text-zinc-500 uppercase tracking-widest font-mono mt-1">
+                      {key}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex flex-wrap items-center gap-x-5 gap-y-1.5 text-[11px] text-zinc-600 font-mono border-t border-white/[0.04] pt-3">
+                <span>Overall: <span className="text-zinc-400">{trustReport.overall_score}</span></span>
+                <span>Platforms: <span className="text-zinc-400">{trustReport.platform_count}</span></span>
+                <span>Decay: <span className="text-zinc-400">{trustReport.decay_factor.toFixed(3)}</span></span>
+                <span>Computed: <span className="text-zinc-400">{new Date(trustReport.computed_at).toLocaleString()}</span></span>
+              </div>
+            </Card>
+          </motion.div>
+        )}
+
+        {/* Attestations */}
+        {detail && detail.recent_attestations && detail.recent_attestations.length > 0 && (
+          <motion.div
+            className="mb-8"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.6 }}
+          >
+            <Card>
+              <h2 className="text-sm font-semibold text-zinc-300 mb-5 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
+                Attestations ({detail.attestation_count})
+              </h2>
+              <div className="space-y-3">
+                {detail.recent_attestations.map((att) => (
+                  <div
+                    key={att.attestation_id}
+                    className="flex items-center justify-between bg-white/[0.03] border border-white/[0.06] rounded-xl px-4 py-3"
+                  >
+                    <div className="flex items-center gap-3 min-w-0">
+                      <div className="w-8 h-8 rounded-full bg-white/[0.06] flex items-center justify-center text-xs font-semibold text-zinc-400 shrink-0">
+                        {att.attester_name.charAt(0).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <Link
+                          href={`/agents/${att.attester_id}`}
+                          className="text-sm font-medium text-zinc-300 hover:text-isnad-teal transition-colors truncate block"
+                        >
+                          {att.attester_name}
+                        </Link>
+                        <span className="text-[10px] text-zinc-600 font-mono">{att.scope}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <span className="text-sm font-mono tabular-nums" style={{ color: getScoreColor(att.value * 100) }}>
+                        {att.value.toFixed(1)}
+                      </span>
+                      <span className="text-[10px] text-zinc-600 font-mono">
+                        {new Date(att.created_at).toLocaleDateString()}
+                      </span>
+                    </div>
+                  </div>
                 ))}
               </div>
             </Card>

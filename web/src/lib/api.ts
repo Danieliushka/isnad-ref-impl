@@ -300,3 +300,30 @@ export async function getTrustScoreV2(
   if (!res.ok) throw new Error(`Trust score v2 failed: ${res.status}`);
   return res.json();
 }
+
+/* ── Trust Report (verification history) ── */
+
+export interface TrustReportScore {
+  score: number;
+  evidence: Record<string, unknown>;
+}
+
+export interface TrustReport {
+  agent_id: string;
+  overall_score: number;
+  decay_factor: number;
+  platform_count: number;
+  scores: {
+    identity: TrustReportScore;
+    activity: TrustReportScore;
+    reputation: TrustReportScore;
+    security: TrustReportScore;
+  };
+  computed_at: string;
+}
+
+export async function getTrustReport(agentId: string): Promise<TrustReport> {
+  const res = await fetch(`${API_BASE}/agents/${encodeURIComponent(agentId)}/trust-report`);
+  if (!res.ok) throw new Error(`Trust report failed: ${res.status}`);
+  return res.json();
+}
