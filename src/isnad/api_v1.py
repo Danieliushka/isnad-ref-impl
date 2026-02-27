@@ -1633,6 +1633,174 @@ async def verify_trust_acn(agent_id: str):
 _worker = None
 
 
+# ---------------------------------------------------------------------------
+# Real Scoring Engine endpoints — DAN-80
+# ---------------------------------------------------------------------------
+
+class RealScoreCategory(BaseModel):
+    name: str
+    raw_score: float
+    max_points: float
+    normalized: float
+    weighted: float
+    details: dict = {}
+
+
+class RealScoreBreakdownResponse(BaseModel):
+    agent_id: str
+    agent_name: str
+    total_score: float = Field(ge=0, le=100)
+    tier: str
+    tier_emoji: str
+    categories: list[RealScoreCategory]
+    github_data: Optional[dict] = None
+    computed_at: str
+
+
+class RecalculateResponse(BaseModel):
+    agent_id: str
+    old_score: float
+    new_score: float
+    tier: str
+    computed_at: str
+
+
+@router.get("/agents/{agent_id}/score-breakdown", response_model=RealScoreBreakdownResponse)
+async def get_score_breakdown(agent_id: str):
+    """Get detailed real scoring breakdown (5 categories, GitHub data, tier)."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        agent = await _db.get_agent_by_name(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    resolved_id = agent["id"]
+
+    # Get latest trust_check with scoring-engine report
+    async with _db._pool.acquire() as conn:
+        row = await conn.fetchrow(
+            """SELECT report FROM trust_checks
+               WHERE agent_id = $1 AND requester_ip = 'scoring-engine'
+               ORDER BY requested_at DESC LIMIT 1""",
+            resolved_id,
+        )
+
+    if row and row["report"]:
+        report = row["report"]
+        if isinstance(report, str):
+            report = json.loads(report)
+
+        categories = [
+            RealScoreCategory(**c) for c in report.get("categories", [])
+        ]
+
+        from scoring.engine import score_to_tier, tier_emoji as _tier_emoji
+        tier = report.get("tier", score_to_tier(report.get("total_score", 0)))
+
+        return RealScoreBreakdownResponse(
+            agent_id=resolved_id,
+            agent_name=agent.get("name", ""),
+            total_score=report.get("total_score", agent.get("trust_score", 0)),
+            tier=tier,
+            tier_emoji=_tier_emoji(tier),
+            categories=categories,
+            github_data=report.get("github_data"),
+            computed_at=report.get("computed_at", ""),
+        )
+
+    # No scoring-engine report yet — return basic info
+    from scoring.engine import score_to_tier, tier_emoji as _tier_emoji
+    ts = agent.get("trust_score", 0) or 0
+    tier = score_to_tier(ts)
+    return RealScoreBreakdownResponse(
+        agent_id=resolved_id,
+        agent_name=agent.get("name", ""),
+        total_score=ts,
+        tier=tier,
+        tier_emoji=_tier_emoji(tier),
+        categories=[],
+        computed_at="",
+    )
+
+
+@router.post("/agents/{agent_id}/recalculate-score", response_model=RecalculateResponse)
+async def recalculate_score(agent_id: str):
+    """Recalculate trust score for an agent using the real scoring engine."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        agent = await _db.get_agent_by_name(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    old_score = agent.get("trust_score", 0) or 0
+
+    from scoring.engine import ScoringEngine
+    from scoring.github_collector import fetch_github_data, extract_github_username
+
+    engine = ScoringEngine()
+
+    platforms = agent.get("platforms", [])
+    if isinstance(platforms, str):
+        try:
+            platforms = json.loads(platforms)
+        except Exception:
+            platforms = []
+
+    # Fetch GitHub data
+    github_data = None
+    gh_username = extract_github_username(platforms)
+    if gh_username:
+        github_data = await fetch_github_data(gh_username)
+
+    # Get attestations
+    attestations = await _db.get_attestations_for_subject(agent["id"])
+
+    breakdown = engine.compute(dict(agent), attestations, github_data)
+
+    # Save
+    now = datetime.now(timezone.utc).isoformat()
+    await _db.update_agent(agent["id"], trust_score=breakdown.total_score, last_checked=now)
+
+    # Save report
+    report = {
+        "total_score": breakdown.total_score,
+        "tier": breakdown.tier,
+        "categories": [
+            {
+                "name": c.name,
+                "raw_score": c.raw_score,
+                "max_points": c.max_points,
+                "normalized": c.normalized,
+                "weighted": c.weighted,
+                "details": c.details,
+            }
+            for c in breakdown.categories
+        ],
+        "github_data": breakdown.github_data,
+        "computed_at": breakdown.computed_at,
+    }
+    async with _db._pool.acquire() as conn:
+        await conn.execute(
+            """INSERT INTO trust_checks (agent_id, requested_at, score, report, requester_ip)
+               VALUES ($1, $2, $3, $4, $5)""",
+            agent["id"], now, breakdown.total_score / 100.0, json.dumps(report), "scoring-engine",
+        )
+
+    return RecalculateResponse(
+        agent_id=agent["id"],
+        old_score=old_score,
+        new_score=breakdown.total_score,
+        tier=breakdown.tier,
+        computed_at=breakdown.computed_at,
+    )
+
+
 def create_app(*, allowed_origins: list[str] | None = None,
                use_lifespan: bool = True) -> FastAPI:
     """Create a standalone FastAPI app with the v1 router and middlewares."""
