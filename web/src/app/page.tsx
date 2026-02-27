@@ -10,6 +10,9 @@ import AnimatedSection from '@/components/sections/animated-section';
 import ApiTabs from '@/components/sections/api-tabs';
 import TrustBadgeShowcase from '@/components/sections/trust-badge-showcase';
 import TrustedBy from '@/components/sections/trusted-by';
+import TrustExplorerLive from '@/components/sections/trust-explorer-live';
+import WhyTrustMatters from '@/components/sections/why-trust-matters';
+import ForDevelopers from '@/components/sections/for-developers';
 
 /* ── How It Works ── */
 const steps = [
@@ -127,14 +130,7 @@ const features = [
   },
 ];
 
-/* ── Explorer Mock Data ── */
-const agents = [
-  { name: 'gpt-4o', score: 92, status: 'Certified', checked: '2 min ago' },
-  { name: 'claude-3-5', score: 89, status: 'Certified', checked: '5 min ago' },
-  { name: 'gendolf', score: 87, status: 'Certified', checked: '15 min ago' },
-  { name: 'trading-bot-v2', score: 67, status: 'Pending', checked: '1 hr ago' },
-  { name: 'deepseek-v3', score: 44, status: 'Failed', checked: '3 hr ago' },
-];
+/* Explorer data now loaded from API via TrustExplorerLive component */
 
 export default function HomePage() {
   return (
@@ -264,71 +260,18 @@ export default function HomePage() {
 
       <div className="glow-divider max-w-4xl mx-auto" />
 
-      {/* Trust Explorer Preview */}
-      <AnimatedSection id="explorer" className="py-24 px-4 sm:px-6">
-        <div className="max-w-4xl mx-auto">
-          <div className="text-center mb-12">
-            <span className="text-[10px] font-mono tracking-[0.2em] uppercase text-isnad-teal/60 mb-3 block">
-              Network
-            </span>
-            <h2 className="font-heading text-3xl md:text-4xl font-bold tracking-tight mb-3">
-              Trust Explorer
-            </h2>
-            <p className="text-zinc-500 text-sm">
-              Live agent trust scores, updated in real time
-            </p>
-          </div>
-          <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl overflow-hidden">
-            <div className="overflow-x-auto">
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-white/[0.06]">
-                    <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">
-                      Agent
-                    </th>
-                    <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">
-                      Score
-                    </th>
-                    <th className="text-left px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">
-                      Status
-                    </th>
-                    <th className="text-right px-6 py-4 text-[10px] font-mono text-zinc-500 tracking-[0.15em] uppercase">
-                      Last Checked
-                    </th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {agents.map((a) => (
-                    <tr
-                      key={a.name}
-                      className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors"
-                    >
-                      <td className="px-6 py-4 font-mono text-sm text-isnad-teal">
-                        {a.name}
-                      </td>
-                      <td className="px-6 py-4">
-                        <Badge score={a.score}>{a.score}</Badge>
-                      </td>
-                      <td className="px-6 py-4 text-zinc-400 text-xs">{a.status}</td>
-                      <td className="px-6 py-4 text-right text-zinc-600 text-xs font-mono">
-                        {a.checked}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-            <div className="px-6 py-4 border-t border-white/[0.04] text-center">
-              <Link
-                href="/explorer"
-                className="text-isnad-teal/70 hover:text-isnad-teal text-sm font-medium transition-colors"
-              >
-                View all agents →
-              </Link>
-            </div>
-          </div>
-        </div>
-      </AnimatedSection>
+      {/* Trust Explorer Preview — Live from API */}
+      <TrustExplorerLive />
+
+      <div className="glow-divider max-w-4xl mx-auto" />
+
+      {/* Why Trust Matters */}
+      <WhyTrustMatters />
+
+      <div className="glow-divider max-w-4xl mx-auto" />
+
+      {/* For Developers */}
+      <ForDevelopers />
 
       <div className="glow-divider max-w-4xl mx-auto" />
 
@@ -405,9 +348,12 @@ export default function HomePage() {
             <div>
               <h4 className="text-[10px] font-mono tracking-[0.15em] uppercase text-zinc-500 mb-3">Protocol</h4>
               <nav className="flex flex-col gap-2 text-sm text-zinc-600">
-                <span className="text-zinc-700">v1.0 — Active</span>
-                <span className="text-zinc-700">1000+ tests passing</span>
-                <span className="text-zinc-700">Open source</span>
+                <span className="text-zinc-700">API v1.0 — Active</span>
+                <a href="mailto:daniel@isnad.site" className="hover:text-zinc-400 transition-colors">daniel@isnad.site</a>
+                <a href="https://github.com/Danieliushka/isnad-ref-impl" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-400 transition-colors flex items-center gap-1.5">
+                  <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+                  GitHub
+                </a>
               </nav>
             </div>
           </div>
@@ -416,7 +362,7 @@ export default function HomePage() {
               © 2025 isnad. Built with cryptography, not trust.
             </p>
             <p className="text-[10px] text-zinc-800 font-mono">
-              Ed25519 · SHA-256 · AsyncPG
+              API v1.0 · Ed25519 · SHA-256 · AsyncPG
             </p>
           </div>
         </div>

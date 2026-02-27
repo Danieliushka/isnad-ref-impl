@@ -29,6 +29,17 @@ function getScoreColor(score: number): string {
   return '#ef4444';
 }
 
+function getTrustLevel(score: number): { label: string; color: string } {
+  if (score >= 80) return { label: 'Highly Trusted', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
+  if (score >= 51) return { label: 'Trusted', color: 'text-isnad-teal bg-isnad-teal/10 border-isnad-teal/20' };
+  if (score >= 21) return { label: 'Building Trust', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+  return { label: 'Newcomer', color: 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20' };
+}
+
+function daysSince(dateStr: string): number {
+  return Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
+}
+
 function ScoreBar({ label, score, delay = 0 }: { label: string; score: number; delay?: number }) {
   const color = getScoreColor(score);
   return (
@@ -220,6 +231,14 @@ export default function AgentProfilePage() {
                       ✓ Certified
                     </span>
                   )}
+                  {(() => {
+                    const level = getTrustLevel(score);
+                    return (
+                      <span className={`inline-flex items-center px-3 py-1 rounded-lg text-[11px] font-medium border ${level.color}`}>
+                        {level.label}
+                      </span>
+                    );
+                  })()}
                   {badges.filter(b => b.status === 'active').map(b => (
                     <span
                       key={b.id}
@@ -262,6 +281,56 @@ export default function AgentProfilePage() {
             </div>
           </div>
         </motion.div>
+
+        {/* Activity Timeline + Security Info */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-6 mb-8">
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.15 }}>
+            <Card>
+              <h2 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
+                Activity Timeline
+              </h2>
+              <div className="space-y-3 text-xs">
+                <div className="flex justify-between"><span className="text-zinc-500">Registered</span><span className="text-zinc-300 font-mono">{new Date(agent.created_at).toLocaleDateString()}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">Account Age</span><span className="text-zinc-300 font-mono">{daysSince(agent.created_at)} days</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">Attestations</span><span className="text-zinc-300 font-mono">{detail?.attestation_count ?? 0}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">Last Checked</span><span className="text-zinc-300 font-mono">{detail?.last_checked ? new Date(detail.last_checked).toLocaleDateString() : 'Never'}</span></div>
+              </div>
+            </Card>
+          </motion.div>
+          <motion.div initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.2 }}>
+            <Card>
+              <h2 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
+                Security Info
+              </h2>
+              <div className="space-y-3 text-xs">
+                <div className="flex justify-between"><span className="text-zinc-500">Key Fingerprint</span><span className="text-zinc-300 font-mono">{agent.public_key.slice(0, 16)}…</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">Algorithm</span><span className="text-zinc-300 font-mono">Ed25519</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">Key Created</span><span className="text-zinc-300 font-mono">{new Date(agent.created_at).toLocaleDateString()}</span></div>
+                <div className="flex justify-between"><span className="text-zinc-500">Signature</span><span className="text-zinc-300 font-mono">SHA-256</span></div>
+              </div>
+            </Card>
+          </motion.div>
+        </div>
+
+        {/* Empty state + CTA when unscored */}
+        {score === 0 && (
+          <motion.div className="mb-8" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.25 }}>
+            <Card className="text-center py-10 border-isnad-teal/10">
+              <div className="inline-flex items-center justify-center w-16 h-16 rounded-full bg-white/[0.04] mb-5">
+                <span className="text-3xl">🔍</span>
+              </div>
+              <h3 className="text-lg font-semibold text-zinc-300 mb-2">No Trust Data Yet</h3>
+              <p className="text-zinc-500 text-sm max-w-md mx-auto mb-6">
+                This agent hasn&apos;t been scored yet. Run a trust check to generate their first score.
+              </p>
+              <Link href={`/check/${agentId}`}>
+                <Button size="lg">Run Trust Check →</Button>
+              </Link>
+            </Card>
+          </motion.div>
+        )}
 
         {/* Trust Breakdown + Radar */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">

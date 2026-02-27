@@ -90,11 +90,30 @@ export default function AgentCard({ agent, index = 0 }: AgentCardProps) {
               </div>
 
               {/* Description */}
-              {agent.description && (
+              {agent.description ? (
                 <p className="text-zinc-500 text-xs line-clamp-2 leading-relaxed">
                   {agent.description}
                 </p>
+              ) : (
+                <p className="text-zinc-600 text-xs italic">No description provided</p>
               )}
+
+              {/* Platforms + Capabilities badges */}
+              <div className="flex flex-wrap items-center gap-1.5 mt-2">
+                {agent.platforms && agent.platforms.length > 0 && (
+                  <span className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono text-zinc-500 bg-white/[0.04] border border-white/[0.06]">
+                    {agent.platforms.length} platform{agent.platforms.length !== 1 ? 's' : ''}
+                  </span>
+                )}
+                {agent.capabilities && agent.capabilities.slice(0, 3).map((cap, i) => (
+                  <span key={i} className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-mono text-zinc-500 bg-white/[0.04] border border-white/[0.06]">
+                    {cap}
+                  </span>
+                ))}
+                {agent.capabilities && agent.capabilities.length > 3 && (
+                  <span className="text-[9px] text-zinc-600 font-mono">+{agent.capabilities.length - 3} more</span>
+                )}
+              </div>
             </div>
 
             {/* Trust Score Ring */}

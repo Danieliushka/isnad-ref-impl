@@ -39,9 +39,10 @@ interface StatsData {
   tests: number;
   modules: number;
   agents: number;
+  checks: number;
 }
 
-const FALLBACK: StatsData = { tests: 1029, modules: 36, agents: 8 };
+const FALLBACK: StatsData = { tests: 1029, modules: 36, agents: 8, checks: 0 };
 
 export default function StatsBar() {
   const [data, setData] = useState<StatsData>(FALLBACK);
@@ -49,16 +50,19 @@ export default function StatsBar() {
   useEffect(() => {
     async function load() {
       try {
-        const [healthRes, agentsRes] = await Promise.all([
+        const [healthRes, agentsRes, statsRes] = await Promise.all([
           fetch('/api/v1/health', { next: { revalidate: 0 } } as RequestInit),
           fetch('/api/v1/agents?limit=1', { next: { revalidate: 0 } } as RequestInit),
+          fetch('/api/v1/stats', { next: { revalidate: 0 } } as RequestInit).catch(() => null),
         ]);
         const health = await healthRes.json();
         const agents = await agentsRes.json();
+        const stats = statsRes ? await statsRes.json() : {};
         setData({
           tests: health.tests ?? FALLBACK.tests,
           modules: health.modules ?? FALLBACK.modules,
           agents: agents.total ?? FALLBACK.agents,
+          checks: stats.agents_checked ?? FALLBACK.checks,
         });
       } catch {
         // keep fallback
@@ -69,15 +73,16 @@ export default function StatsBar() {
 
   const stats = [
     { target: data.tests, suffix: '+', label: 'Tests Passing' },
-    { target: data.modules, suffix: '', label: 'Trust Modules' },
+    { target: data.modules, suffix: '', label: 'Scoring Dimensions' },
     { target: data.agents, suffix: '', label: 'Registered Agents' },
+    { target: data.checks, suffix: '', label: 'Trust Checks' },
   ];
 
   return (
     <section className="py-20 px-6">
       <div className="max-w-4xl mx-auto">
         <div className="bg-white/[0.02] border border-white/[0.06] rounded-2xl p-8 md:p-12">
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-10 md:gap-0 text-center">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-10 md:gap-0 text-center">
             {stats.map((s, i) => (
               <motion.div
                 key={s.label}
