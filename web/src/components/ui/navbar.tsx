@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useState } from "react";
 
@@ -12,8 +13,11 @@ const links = [
   { href: "https://github.com/Danieliushka/isnad-ref-impl", label: "GitHub", external: true },
 ];
 
-function NavLink({ link }: { link: typeof links[number] }) {
-  const cls = "px-3 py-1.5 text-sm text-zinc-500 hover:text-zinc-200 rounded-lg hover:bg-white/[0.04] transition-all duration-200";
+function NavLink({ link, active }: { link: typeof links[number]; active?: boolean }) {
+  const base = "px-3 py-1.5 text-sm rounded-lg transition-all duration-200";
+  const cls = active
+    ? `${base} text-isnad-teal bg-isnad-teal/[0.08]`
+    : `${base} text-zinc-500 hover:text-zinc-200 hover:bg-white/[0.04]`;
   if (link.external) {
     return (
       <a href={link.href} target="_blank" rel="noopener noreferrer" className={cls}>
@@ -30,6 +34,7 @@ function NavLink({ link }: { link: typeof links[number] }) {
 
 export function Navbar() {
   const [open, setOpen] = useState(false);
+  const pathname = usePathname();
 
   return (
     <motion.nav
@@ -48,7 +53,7 @@ export function Navbar() {
           {/* Desktop links */}
           <div className="hidden sm:flex items-center gap-1">
             {links.map((link) => (
-              <NavLink key={link.href} link={link} />
+              <NavLink key={link.href} link={link} active={!link.external && pathname === link.href} />
             ))}
           </div>
 
@@ -87,7 +92,7 @@ export function Navbar() {
               <div className="px-4 py-3 flex flex-col gap-1">
                 {links.map((link) => (
                   <div key={link.href} onClick={() => setOpen(false)}>
-                    <NavLink link={link} />
+                    <NavLink link={link} active={!link.external && pathname === link.href} />
                   </div>
                 ))}
               </div>

@@ -22,6 +22,26 @@ export const metadata: Metadata = {
   title: "isnad — Trust Infrastructure for AI Agents",
   description:
     "Verify, certify, and build trust for AI agents with cryptographic attestations and behavioral analysis.",
+  keywords: ["AI agents", "trust verification", "cryptographic identity", "attestation", "agent trust score", "isnad"],
+  authors: [{ name: "isnad" }],
+  openGraph: {
+    title: "isnad — Trust Infrastructure for AI Agents",
+    description: "Cryptographic verification, behavioral analysis, and attestation chains for AI agents.",
+    url: "https://isnad.site",
+    siteName: "isnad",
+    type: "website",
+    locale: "en_US",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "isnad — Trust Infrastructure for AI Agents",
+    description: "Cryptographic verification, behavioral analysis, and attestation chains for AI agents.",
+  },
+  metadataBase: new URL("https://isnad.site"),
+  robots: {
+    index: true,
+    follow: true,
+  },
 };
 
 export default function RootLayout({

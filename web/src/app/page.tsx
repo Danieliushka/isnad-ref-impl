@@ -8,6 +8,8 @@ import LiveCheckWidget from '@/components/sections/live-check-widget';
 import StatsBar from '@/components/sections/stats-bar';
 import AnimatedSection from '@/components/sections/animated-section';
 import ApiTabs from '@/components/sections/api-tabs';
+import TrustBadgeShowcase from '@/components/sections/trust-badge-showcase';
+import TrustedBy from '@/components/sections/trusted-by';
 
 /* ── How It Works ── */
 const steps = [
@@ -148,6 +150,9 @@ export default function HomePage() {
       <section id="stats">
         <StatsBar />
       </section>
+
+      {/* Trusted By */}
+      <TrustedBy />
 
       <div className="glow-divider max-w-4xl mx-auto" />
 
@@ -327,6 +332,11 @@ export default function HomePage() {
 
       <div className="glow-divider max-w-4xl mx-auto" />
 
+      {/* Trust Badge Showcase */}
+      <TrustBadgeShowcase />
+
+      <div className="glow-divider max-w-4xl mx-auto" />
+
       {/* API Section */}
       <ApiTabs />
 
@@ -359,41 +369,56 @@ export default function HomePage() {
       {/* Footer */}
       <footer
         id="footer"
-        className="border-t border-white/[0.04] py-10 sm:py-12 px-4 sm:px-6"
+        className="border-t border-white/[0.04] py-12 sm:py-16 px-4 sm:px-6"
       >
-        <div className="max-w-5xl mx-auto flex flex-col md:flex-row items-center justify-between gap-4 md:gap-6">
-          <div className="flex items-center gap-1.5">
-            <span className="text-lg font-bold text-white">isnad</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
+        <div className="max-w-5xl mx-auto">
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-10">
+            {/* Brand */}
+            <div className="md:col-span-1">
+              <div className="flex items-center gap-1.5 mb-3">
+                <span className="text-lg font-bold text-white">isnad</span>
+                <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
+              </div>
+              <p className="text-xs text-zinc-600 leading-relaxed">
+                Trust infrastructure for the AI agent economy. Verify, certify, and build trust.
+              </p>
+            </div>
+            {/* Product */}
+            <div>
+              <h4 className="text-[10px] font-mono tracking-[0.15em] uppercase text-zinc-500 mb-3">Product</h4>
+              <nav className="flex flex-col gap-2 text-sm text-zinc-600">
+                <Link href="/check" className="hover:text-zinc-400 transition-colors">Check Agent</Link>
+                <Link href="/explorer" className="hover:text-zinc-400 transition-colors">Explorer</Link>
+                <Link href="/register" className="hover:text-zinc-400 transition-colors">Register</Link>
+              </nav>
+            </div>
+            {/* Developers */}
+            <div>
+              <h4 className="text-[10px] font-mono tracking-[0.15em] uppercase text-zinc-500 mb-3">Developers</h4>
+              <nav className="flex flex-col gap-2 text-sm text-zinc-600">
+                <Link href="/docs" className="hover:text-zinc-400 transition-colors">Documentation</Link>
+                <a href="https://github.com/Danieliushka/isnad-ref-impl" target="_blank" rel="noopener noreferrer" className="hover:text-zinc-400 transition-colors">GitHub</a>
+                <Link href="/docs" className="hover:text-zinc-400 transition-colors">API Reference</Link>
+              </nav>
+            </div>
+            {/* Protocol */}
+            <div>
+              <h4 className="text-[10px] font-mono tracking-[0.15em] uppercase text-zinc-500 mb-3">Protocol</h4>
+              <nav className="flex flex-col gap-2 text-sm text-zinc-600">
+                <span className="text-zinc-700">v1.0 — Active</span>
+                <span className="text-zinc-700">1000+ tests passing</span>
+                <span className="text-zinc-700">Open source</span>
+              </nav>
+            </div>
           </div>
-          <nav className="flex gap-6 text-sm text-zinc-600">
-            <a
-              href="https://github.com/Danieliushka/isnad-ref-impl"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="hover:text-zinc-400 transition-colors"
-            >
-              GitHub
-            </a>
-            <Link href="/docs" className="hover:text-zinc-400 transition-colors">
-              Docs
-            </Link>
-            <Link href="/register" className="hover:text-zinc-400 transition-colors">
-              Register
-            </Link>
-            <Link href="/check" className="hover:text-zinc-400 transition-colors">
-              Check
-            </Link>
-            <Link
-              href="/explorer"
-              className="hover:text-zinc-400 transition-colors"
-            >
-              Explorer
-            </Link>
-          </nav>
-          <p className="text-xs text-zinc-700 font-mono">
-            Built with cryptography, not trust.
-          </p>
+          <div className="border-t border-white/[0.04] pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
+            <p className="text-xs text-zinc-700 font-mono">
+              © 2025 isnad. Built with cryptography, not trust.
+            </p>
+            <p className="text-[10px] text-zinc-800 font-mono">
+              Ed25519 · SHA-256 · AsyncPG
+            </p>
+          </div>
         </div>
       </footer>
     </main>
