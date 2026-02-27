@@ -4,6 +4,7 @@ import Link from 'next/link';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
 import TrustScoreRing from './trust-score-ring';
+import { TrustBadge } from '@/components/ui/badge';
 import type { AgentProfile } from '@/lib/api';
 
 const typeColors: Record<string, { bg: string; text: string; label: string }> = {
@@ -82,6 +83,7 @@ export default function AgentCard({ agent, index = 0 }: AgentCardProps) {
                 <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[10px] font-medium tracking-wide uppercase ${typeInfo.bg} ${typeInfo.text} border border-current/10`}>
                   {typeInfo.label}
                 </span>
+                {score > 0 && <TrustBadge score={score} />}
                 {agent.is_certified && (
                   <span className="text-[10px] font-medium text-isnad-teal bg-isnad-teal/10 px-2 py-0.5 rounded-full border border-isnad-teal/20">
                     ✓ Certified

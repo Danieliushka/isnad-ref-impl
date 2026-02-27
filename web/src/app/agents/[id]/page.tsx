@@ -7,7 +7,7 @@ import { motion } from 'framer-motion';
 import { Navbar } from '@/components/ui/navbar';
 import { Card } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
+import { Badge, TrustBadgeLarge } from '@/components/ui/badge';
 import TrustScoreRing from '@/components/trust-score-ring';
 import RadarChart from '@/components/radar-chart';
 import { getAgentProfile, getTrustScoreV2, getAgentBadges, getAgentDetail, getTrustReport, type AgentProfile, type TrustScoreV2Response, type BadgeRecord, type AgentDetailResponse, type TrustReport } from '@/lib/api';
@@ -231,14 +231,7 @@ export default function AgentProfilePage() {
                       ✓ Certified
                     </span>
                   )}
-                  {(() => {
-                    const level = getTrustLevel(score);
-                    return (
-                      <span className={`inline-flex items-center px-3 py-1 rounded-lg text-[11px] font-medium border ${level.color}`}>
-                        {level.label}
-                      </span>
-                    );
-                  })()}
+                  <TrustBadgeLarge score={score} />
                   {badges.filter(b => b.status === 'active').map(b => (
                     <span
                       key={b.id}

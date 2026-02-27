@@ -97,3 +97,9 @@ body::before {
 .scrollbar-none::-webkit-scrollbar {
   display: none;
 }
+
+/* Shimmer animation for trust badges */
+@keyframes shimmer {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(100%); }
+}
