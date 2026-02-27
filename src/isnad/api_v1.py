@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import hashlib
 import hmac
+import math
 import os
 import secrets
 import time
@@ -1252,6 +1253,172 @@ async def _auto_grant_badge(agent_id: str, badge_type: str, metadata: Optional[d
         return
     badge_id = hashlib.sha256(f"badge:{agent_id}:{badge_type}:auto".encode()).hexdigest()[:16]
     await _db.create_badge(badge_id, agent_id, badge_type, metadata=metadata or {})
+
+
+# ---------------------------------------------------------------------------
+# Trust Score Endpoint — DAN-80
+# ---------------------------------------------------------------------------
+
+class TrustScoreBreakdown(BaseModel):
+    """Breakdown of trust score components."""
+    attestation_count: int = Field(description="Number of valid attestations")
+    attestation_score: float = Field(ge=0, le=100, description="Score from attestation count (0-100)")
+    attestation_weight: float = Field(description="Weight applied to attestation score")
+    source_diversity: int = Field(description="Number of unique attestation sources (witnesses)")
+    diversity_score: float = Field(ge=0, le=100, description="Score from source diversity (0-100)")
+    diversity_weight: float = Field(description="Weight applied to diversity score")
+    registration_age_days: int = Field(description="Days since agent registration")
+    age_score: float = Field(ge=0, le=100, description="Score from registration age (0-100)")
+    age_weight: float = Field(description="Weight applied to age score")
+    is_verified: bool = Field(description="Whether agent has verification badge")
+    is_certified: bool = Field(description="Whether agent is certified")
+    verification_score: float = Field(ge=0, le=100, description="Score from verification status (0-100)")
+    verification_weight: float = Field(description="Weight applied to verification score")
+
+
+class TrustScoreResponse(BaseModel):
+    """Trust score response with numeric score and breakdown."""
+    agent_id: str
+    trust_score: int = Field(ge=0, le=100, description="Overall trust score 0-100")
+    breakdown: TrustScoreBreakdown
+    computed_at: str = Field(description="ISO-8601 timestamp")
+
+
+# Weights for trust score components
+_TRUST_WEIGHTS = {
+    "attestation_count": 0.30,
+    "source_diversity": 0.25,
+    "registration_age": 0.25,
+    "verification_status": 0.20,
+}
+
+
+def _compute_trust_score(
+    attestation_count: int,
+    source_diversity: int,
+    registration_age_days: int,
+    is_verified: bool,
+    is_certified: bool,
+) -> tuple[int, TrustScoreBreakdown]:
+    """Compute trust score (0-100) from components.
+
+    Returns (score, breakdown).
+    """
+    # Attestation count score: log-scaled, 10 attestations = ~100
+    if attestation_count == 0:
+        att_score = 0.0
+    else:
+        att_score = min(math.log2(attestation_count + 1) / math.log2(11) * 100, 100.0)
+
+    # Source diversity score: log-scaled, 5 unique sources = ~100
+    if source_diversity == 0:
+        div_score = 0.0
+    else:
+        div_score = min(math.log2(source_diversity + 1) / math.log2(6) * 100, 100.0)
+
+    # Registration age score: linear up to 365 days = 100
+    age_score = min(registration_age_days / 365.0 * 100, 100.0)
+
+    # Verification score: binary signals
+    ver_score = 0.0
+    if is_certified:
+        ver_score += 60.0
+    if is_verified:
+        ver_score += 40.0
+    ver_score = min(ver_score, 100.0)
+
+    # Weighted combination
+    overall = (
+        att_score * _TRUST_WEIGHTS["attestation_count"]
+        + div_score * _TRUST_WEIGHTS["source_diversity"]
+        + age_score * _TRUST_WEIGHTS["registration_age"]
+        + ver_score * _TRUST_WEIGHTS["verification_status"]
+    )
+
+    breakdown = TrustScoreBreakdown(
+        attestation_count=attestation_count,
+        attestation_score=round(att_score, 2),
+        attestation_weight=_TRUST_WEIGHTS["attestation_count"],
+        source_diversity=source_diversity,
+        diversity_score=round(div_score, 2),
+        diversity_weight=_TRUST_WEIGHTS["source_diversity"],
+        registration_age_days=registration_age_days,
+        age_score=round(age_score, 2),
+        age_weight=_TRUST_WEIGHTS["registration_age"],
+        is_verified=is_verified,
+        is_certified=is_certified,
+        verification_score=round(ver_score, 2),
+        verification_weight=_TRUST_WEIGHTS["verification_status"],
+    )
+
+    return round(overall), breakdown
+
+
+@router.get("/agents/{agent_id}/trust-score", response_model=TrustScoreResponse)
+async def get_trust_score(agent_id: str):
+    """Get computed trust score (0-100) with full breakdown.
+
+    Score = weighted combination of:
+    - Attestation count (30%) — log-scaled, more attestations = higher score
+    - Source diversity (25%) — unique witnesses, log-scaled
+    - Registration age (25%) — linear up to 1 year
+    - Verification status (20%) — certified + verified badges
+    """
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    # Resolve agent
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        agent = await _db.get_agent_by_name(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    resolved_id = agent["id"]
+
+    # 1. Attestation count + source diversity
+    attestations = await _db.get_attestations_for_subject(resolved_id)
+    attestation_count = len(attestations)
+    unique_witnesses = len({a["witness_id"] for a in attestations})
+
+    # 2. Registration age
+    created_at = agent.get("created_at", "")
+    age_days = 0
+    if created_at:
+        try:
+            if isinstance(created_at, str):
+                created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+            else:
+                created = created_at
+            if created.tzinfo is None:
+                created = created.replace(tzinfo=timezone.utc)
+            age_days = max(0, (datetime.now(timezone.utc) - created).days)
+        except (ValueError, TypeError):
+            pass
+
+    # 3. Verification status
+    is_certified = bool(agent.get("is_certified", False))
+    is_verified = False
+    try:
+        badges = await _db.get_badges(resolved_id)
+        is_verified = any(b.get("badge_type") == "isnad_verified" for b in badges)
+    except Exception:
+        pass
+
+    score, breakdown = _compute_trust_score(
+        attestation_count=attestation_count,
+        source_diversity=unique_witnesses,
+        registration_age_days=age_days,
+        is_verified=is_verified,
+        is_certified=is_certified,
+    )
+
+    return TrustScoreResponse(
+        agent_id=resolved_id,
+        trust_score=score,
+        breakdown=breakdown,
+        computed_at=datetime.now(timezone.utc).isoformat() + "Z",
+    )
 
 
 @router.get("/trust-score-v2/{agent_id}")
