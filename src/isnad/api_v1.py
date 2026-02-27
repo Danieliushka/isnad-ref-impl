@@ -908,6 +908,11 @@ async def register_agent(request: Request, body: AgentRegisterRequest):
     import json
     from nacl.signing import SigningKey
 
+    # Check for duplicate name
+    existing = await _db.get_agent_by_name(body.name)
+    if existing:
+        raise HTTPException(status_code=409, detail=f"Agent with name '{body.name}' already exists")
+
     # Generate Ed25519 keypair
     signing_key = SigningKey.generate()
     public_key_hex = signing_key.verify_key.encode().hex()
