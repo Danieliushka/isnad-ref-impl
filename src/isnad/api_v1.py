@@ -647,6 +647,56 @@ async def stats():
     )
 
 
+class CheckRequest(BaseModel):
+    """Request body for POST /check."""
+    agent_id: str = Field(..., min_length=1, max_length=200, description="Agent ID, name, or public key to check")
+
+
+@router.post("/check", response_model=TrustCheckResult)
+@limiter.limit("60/minute")
+async def check_agent_post(request: Request, body: CheckRequest, _caller: dict = Depends(require_api_key_with_rate_limit)):
+    """
+    POST variant of the trust check — accepts agent_id in the request body.
+
+    Runs the same 36-module trust evaluation as GET /check/{agent_id}.
+    Useful for programmatic integrations where agent_id may contain special characters.
+    """
+    sanitize_input(body.agent_id, "agent_id")
+    t0 = time.time()
+
+    resolved_id = body.agent_id
+    if _db is not None:
+        try:
+            agent_row = await _db.get_agent(body.agent_id)
+            if agent_row is None:
+                agent_row = await _db.get_agent_by_pubkey(body.agent_id)
+            if agent_row is None:
+                agent_row = await _db.get_agent_by_name(body.agent_id)
+            if agent_row is not None:
+                resolved_id = agent_row["id"]
+        except Exception:
+            pass
+
+    result = _run_certification(resolved_id)
+
+    if _db is not None:
+        try:
+            report = result.model_dump()
+            await _db.create_trust_check(
+                agent_id=resolved_id,
+                score=result.overall_score / 100.0,
+                report=report,
+                requester_ip=request.client.host if request.client else "",
+            )
+        except Exception:
+            pass
+
+    elapsed_ms = (time.time() - t0) * 1000
+    _request_times.append(elapsed_ms)
+
+    return result
+
+
 @router.get("/check/{agent_id}", response_model=TrustCheckResult)
 @limiter.limit("60/minute")
 async def check_agent(agent_id: str, request: Request, _caller: dict = Depends(require_api_key_with_rate_limit)):
