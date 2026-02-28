@@ -140,6 +140,14 @@ class Database:
             row = await conn.fetchrow("SELECT * FROM agents WHERE public_key = $1", public_key)
         return _record_to_dict(row) if row else None
 
+    async def get_agent_by_api_key(self, api_key: str) -> Optional[dict]:
+        """Look up agent by raw API key (hashed for comparison)."""
+        import hashlib
+        key_hash = hashlib.sha256(api_key.encode()).hexdigest()
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow("SELECT * FROM agents WHERE api_key_hash = $1", key_hash)
+        return _record_to_dict(row) if row else None
+
     async def list_agents(self, limit: int = 100, offset: int = 0) -> list[dict]:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
