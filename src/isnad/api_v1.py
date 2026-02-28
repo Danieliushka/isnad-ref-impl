@@ -111,12 +111,22 @@ class BadgeCreate(BaseModel):
 VALID_BADGE_TYPES = {"isnad_verified", "early_adopter", "trusted_reviewer"}
 
 
+class TrustScoreStats(BaseModel):
+    """Aggregate trust score statistics."""
+    average: float = 0.0
+    min: float = 0.0
+    max: float = 0.0
+
+
 class StatsResponse(BaseModel):
     """Platform-wide statistics."""
-    agents_checked: int
-    attestations_verified: int
-    avg_response_ms: float
-    uptime: float
+    total_agents: int = 0
+    total_attestations: int = 0
+    agents_checked: int = 0
+    attestations_verified: int = 0
+    trust_scores: TrustScoreStats = TrustScoreStats()
+    avg_response_ms: float = 0.0
+    uptime: float = 0.0
 
 
 class ApiKeyRequest(BaseModel):
@@ -583,20 +593,55 @@ async def create_api_key(body: ApiKeyRequest):
 
 @router.get("/stats", response_model=StatsResponse)
 async def stats():
-    """Platform-wide statistics."""
+    """Platform-wide statistics: agents, attestations, trust scores."""
     avg_ms = sum(_request_times[-100:]) / max(len(_request_times[-100:]), 1) if _request_times else 0.0
     agents_checked = 0
+    total_agents = len(_identities)
+    total_attestations = len(_trust_chain.attestations)
+    trust_score_stats = TrustScoreStats()
+
     if _db is not None:
         try:
             async with _db._pool.acquire() as conn:
                 row = await conn.fetchrow("SELECT COUNT(*) as cnt FROM trust_checks")
                 agents_checked = row["cnt"] if row else 0
+                # Count registered agents from DB
+                agent_row = await conn.fetchrow("SELECT COUNT(*) as cnt FROM agents")
+                if agent_row:
+                    total_agents = max(total_agents, agent_row["cnt"])
+                # Trust score stats from trust_checks
+                score_row = await conn.fetchrow(
+                    "SELECT AVG(overall_score) as avg_score, "
+                    "MIN(overall_score) as min_score, "
+                    "MAX(overall_score) as max_score "
+                    "FROM trust_checks"
+                )
+                if score_row and score_row["avg_score"] is not None:
+                    trust_score_stats = TrustScoreStats(
+                        average=round(float(score_row["avg_score"]), 2),
+                        min=round(float(score_row["min_score"]), 2),
+                        max=round(float(score_row["max_score"]), 2),
+                    )
         except Exception:
             pass
 
+    # Fallback: compute trust scores from in-memory chain if no DB scores
+    if trust_score_stats.average == 0.0 and _identities:
+        scores = [_trust_chain.trust_score(aid) for aid in _identities]
+        scores = [s for s in scores if s > 0]
+        if scores:
+            trust_score_stats = TrustScoreStats(
+                average=round(sum(scores) / len(scores), 4),
+                min=round(min(scores), 4),
+                max=round(max(scores), 4),
+            )
+
     return StatsResponse(
+        total_agents=total_agents,
+        total_attestations=total_attestations,
         agents_checked=agents_checked,
-        attestations_verified=len(_trust_chain.attestations),
+        attestations_verified=total_attestations,
+        trust_scores=trust_score_stats,
         avg_response_ms=round(avg_ms, 2),
         uptime=round(time.time() - _start_time, 2),
     )
