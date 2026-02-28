@@ -936,6 +936,38 @@ class SimpleRegisterResponse(BaseModel):
     api_key: str
 
 
+@router.get("/register")
+async def register_info(request: Request):
+    """Registration info endpoint for programmatic discovery.
+
+    Returns registration requirements and pricing tiers so agents
+    (e.g. Kit the Fox) can discover how to register programmatically.
+    """
+    return {
+        "endpoint": "POST /api/v1/register",
+        "method": "POST",
+        "content_type": "application/json",
+        "fields": {
+            "agent_name": {"type": "string", "required": True, "description": "Unique agent name"},
+            "description": {"type": "string", "required": False, "description": "Agent description"},
+            "homepage_url": {"type": "string", "required": False, "description": "Agent homepage URL"},
+        },
+        "response": {
+            "agent_id": "string (UUID)",
+            "api_key": "string (shown once, starts with isnad_)",
+        },
+        "pricing": {
+            "free": {"price": 0, "checks_per_month": 100},
+            "pro": {"price": 29, "currency": "USD", "checks_per_month": 10000},
+            "enterprise": {"price": "custom", "checks_per_month": "unlimited"},
+        },
+        "example": {
+            "curl": 'curl -X POST https://isnad.site/api/v1/register -H "Content-Type: application/json" -d \'{"agent_name": "my-agent", "description": "My AI agent"}\'',
+        },
+        "docs": "https://isnad.site/docs",
+    }
+
+
 @router.post("/register", response_model=SimpleRegisterResponse, status_code=201)
 @limiter.limit("10/minute")
 async def simple_register(request: Request, body: SimpleRegisterRequest):

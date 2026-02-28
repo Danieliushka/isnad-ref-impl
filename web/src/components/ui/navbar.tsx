@@ -8,6 +8,7 @@ import { useState } from "react";
 const links = [
   { href: "/check", label: "Check" },
   { href: "/explorer", label: "Explorer" },
+  { href: "/pricing", label: "Pricing" },
   { href: "/register", label: "Register" },
   { href: "/docs", label: "Docs" },
   { href: "https://github.com/Danieliushka/isnad-ref-impl", label: "GitHub", external: true },
