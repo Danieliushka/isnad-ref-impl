@@ -148,6 +148,24 @@ class Database:
             row = await conn.fetchrow("SELECT * FROM agents WHERE api_key_hash = $1", key_hash)
         return _record_to_dict(row) if row else None
 
+    async def get_api_usage(self, agent_id: str, month: str) -> int:
+        """Get API call count for agent in a given month (YYYY-MM)."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT calls FROM api_usage WHERE agent_id = $1 AND month = $2",
+                agent_id, month,
+            )
+        return row["calls"] if row else 0
+
+    async def increment_api_usage(self, agent_id: str, month: str) -> None:
+        """Increment API usage counter for agent/month."""
+        async with self._pool.acquire() as conn:
+            await conn.execute(
+                """INSERT INTO api_usage (agent_id, month, calls) VALUES ($1, $2, 1)
+                   ON CONFLICT (agent_id, month) DO UPDATE SET calls = api_usage.calls + 1""",
+                agent_id, month,
+            )
+
     async def list_agents(self, limit: int = 100, offset: int = 0) -> list[dict]:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
