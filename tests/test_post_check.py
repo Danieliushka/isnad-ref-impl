@@ -77,3 +77,38 @@ def test_check_request_validation():
     # Too long should fail
     with pytest.raises(Exception):
         CheckRequest(agent_id="x" * 201)
+
+
+def test_check_request_raw_hash():
+    """CheckRequest accepts optional raw_hash for commit-reveal-intent verification."""
+    from isnad.api_v1 import CheckRequest
+
+    # Without raw_hash
+    req = CheckRequest(agent_id="test-agent")
+    assert req.raw_hash is None
+
+    # With raw_hash
+    test_hash = "a1b2c3d4e5f6" * 5
+    req = CheckRequest(agent_id="test-agent", raw_hash=test_hash)
+    assert req.raw_hash == test_hash
+
+    # raw_hash too long should fail
+    with pytest.raises(Exception):
+        CheckRequest(agent_id="test-agent", raw_hash="x" * 129)
+
+
+def test_trust_check_result_raw_hash():
+    """TrustCheckResult includes raw_hash field."""
+    from isnad.api_v1 import TrustCheckResult, _run_certification
+
+    result = _run_certification("test-agent")
+    assert result.raw_hash is None
+
+    # Can set raw_hash
+    result.raw_hash = "abc123"
+    assert result.raw_hash == "abc123"
+
+    # Serializes correctly
+    d = result.model_dump()
+    assert "raw_hash" in d
+    assert d["raw_hash"] == "abc123"

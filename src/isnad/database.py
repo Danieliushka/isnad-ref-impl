@@ -333,18 +333,20 @@ class Database:
     # ─── Trust Checks CRUD ─────────────────────────────────────────
 
     async def create_trust_check(self, agent_id: str, score: float,
-                                  report: dict, requester_ip: str = "") -> dict:
+                                  report: dict, requester_ip: str = "",
+                                  raw_hash: str | None = None) -> dict:
         now = _now_iso()
         async with self._pool.acquire() as conn:
             row = await conn.fetchrow(
-                """INSERT INTO trust_checks (agent_id, requested_at, score, report, requester_ip)
-                   VALUES ($1, $2, $3, $4, $5) RETURNING id""",
-                agent_id, now, score, json.dumps(report), requester_ip,
+                """INSERT INTO trust_checks (agent_id, requested_at, score, report, requester_ip, raw_hash)
+                   VALUES ($1, $2, $3, $4, $5, $6) RETURNING id""",
+                agent_id, now, score, json.dumps(report), requester_ip, raw_hash,
             )
         return {
             "id": row["id"], "agent_id": agent_id,
             "requested_at": now, "score": score,
             "report": report, "requester_ip": requester_ip,
+            "raw_hash": raw_hash,
         }
 
     async def get_trust_checks(self, agent_id: str, limit: int = 20) -> list[dict]:

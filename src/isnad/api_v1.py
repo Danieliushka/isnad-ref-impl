@@ -58,6 +58,7 @@ class TrustCheckResult(BaseModel):
     categories: list[CategoryScore] = []
     certification_id: str = ""
     certified: bool = False
+    raw_hash: Optional[str] = Field(None, description="Content hash for commit-reveal-intent verification")
 
 
 class AgentSummary(BaseModel):
@@ -650,6 +651,7 @@ async def stats():
 class CheckRequest(BaseModel):
     """Request body for POST /check."""
     agent_id: str = Field(..., min_length=1, max_length=200, description="Agent ID, name, or public key to check")
+    raw_hash: Optional[str] = Field(None, max_length=128, description="Optional content hash for commit-reveal-intent verification (hex-encoded)")
 
 
 @router.post("/check", response_model=TrustCheckResult)
@@ -679,6 +681,10 @@ async def check_agent_post(request: Request, body: CheckRequest, _caller: dict =
 
     result = _run_certification(resolved_id)
 
+    # Attach raw_hash for commit-reveal-intent verification
+    if body.raw_hash:
+        result.raw_hash = body.raw_hash
+
     if _db is not None:
         try:
             report = result.model_dump()
@@ -687,6 +693,7 @@ async def check_agent_post(request: Request, body: CheckRequest, _caller: dict =
                 score=result.overall_score / 100.0,
                 report=report,
                 requester_ip=request.client.host if request.client else "",
+                raw_hash=body.raw_hash,
             )
         except Exception:
             pass
