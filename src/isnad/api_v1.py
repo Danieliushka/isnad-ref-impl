@@ -723,6 +723,91 @@ async def check_agent_post(request: Request, body: CheckRequest, _caller: dict =
     return result
 
 
+@router.get("/check", response_model=TrustCheckResult)
+@limiter.limit("60/minute")
+async def check_agent_query(request: Request, agent: str = Query(..., min_length=1, max_length=200, description="Agent ID, name, or public key to check"), _caller: dict = Depends(require_api_key_with_rate_limit)):
+    """
+    GET variant with query parameter — GET /check?agent=<name>.
+    Equivalent to GET /check/{agent_id} and POST /check.
+    """
+    sanitize_input(agent, "agent_id")
+    t0 = time.time()
+
+    resolved_id = agent
+    if _db is not None:
+        try:
+            agent_row = await _db.get_agent(agent)
+            if agent_row is None:
+                agent_row = await _db.get_agent_by_pubkey(agent)
+            if agent_row is None:
+                agent_row = await _db.get_agent_by_name(agent)
+            if agent_row is not None:
+                resolved_id = agent_row["id"]
+        except Exception:
+            pass
+
+    result = _run_certification(resolved_id)
+
+    if _db is not None:
+        try:
+            report = result.model_dump()
+            await _db.create_trust_check(
+                agent_id=resolved_id,
+                score=result.overall_score / 100.0,
+                report=report,
+                requester_ip=request.client.host if request.client else "",
+            )
+        except Exception:
+            pass
+
+    elapsed_ms = (time.time() - t0) * 1000
+    _request_times.append(elapsed_ms)
+
+    return result
+
+
+@router.get("/check", response_model=TrustCheckResult)
+@limiter.limit("60/minute")
+async def check_agent_query(
+    request: Request,
+    agent: str = Query(..., min_length=1, max_length=200, description="Agent ID, name, or public key"),
+    _caller: dict = Depends(require_api_key_with_rate_limit),
+):
+    """
+    GET /check?agent=<id> — query-param variant of the trust check.
+    Equivalent to POST /check and GET /check/{agent_id}.
+    """
+    sanitize_input(agent, "agent_id")
+    t0 = time.time()
+    resolved_id = agent
+    if _db is not None:
+        try:
+            agent_row = await _db.get_agent(agent)
+            if agent_row is None:
+                agent_row = await _db.get_agent_by_pubkey(agent)
+            if agent_row is None:
+                agent_row = await _db.get_agent_by_name(agent)
+            if agent_row is not None:
+                resolved_id = agent_row["id"]
+        except Exception:
+            pass
+    result = _run_certification(resolved_id)
+    if _db is not None:
+        try:
+            report = result.model_dump()
+            await _db.create_trust_check(
+                agent_id=resolved_id,
+                score=result.overall_score / 100.0,
+                report=report,
+                requester_ip=request.client.host if request.client else "",
+            )
+        except Exception:
+            pass
+    elapsed_ms = (time.time() - t0) * 1000
+    _request_times.append(elapsed_ms)
+    return result
+
+
 @router.get("/check/{agent_id}", response_model=TrustCheckResult)
 @limiter.limit("60/minute")
 async def check_agent(agent_id: str, request: Request):
