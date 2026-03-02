@@ -437,6 +437,65 @@ class Database:
             )
         return [_record_to_dict(r) for r in rows]
 
+    # ─── Behavioral Signals ───────────────────────────────────────
+
+    async def create_behavioral_signal(
+        self, agent_id: str, source: str, event_type: str,
+        contract_id: str = "", amount_sol: float = 0.0,
+        metadata: dict | None = None, created_at: str = "",
+    ) -> dict:
+        """Insert a behavioral signal and return the created record."""
+        now = _now_iso()
+        if not created_at:
+            created_at = now
+        meta_json = json.dumps(metadata or {})
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO behavioral_signals
+                   (agent_id, source, event_type, contract_id, amount_sol, metadata, created_at, received_at)
+                   VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+                   RETURNING *""",
+                agent_id, source, event_type, contract_id, amount_sol,
+                meta_json, created_at, now,
+            )
+        return _record_to_dict(row)
+
+    async def get_behavioral_signals(
+        self, agent_id: str, source: str | None = None, limit: int = 50,
+    ) -> list[dict]:
+        """Get behavioral signals for an agent, optionally filtered by source."""
+        async with self._pool.acquire() as conn:
+            if source:
+                rows = await conn.fetch(
+                    """SELECT * FROM behavioral_signals
+                       WHERE agent_id = $1 AND source = $2
+                       ORDER BY created_at DESC LIMIT $3""",
+                    agent_id, source, limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    """SELECT * FROM behavioral_signals
+                       WHERE agent_id = $1
+                       ORDER BY created_at DESC LIMIT $2""",
+                    agent_id, limit,
+                )
+        return [_record_to_dict(r) for r in rows]
+
+    async def count_behavioral_signals(self, agent_id: str, event_type: str | None = None) -> int:
+        """Count behavioral signals for an agent."""
+        async with self._pool.acquire() as conn:
+            if event_type:
+                row = await conn.fetchrow(
+                    "SELECT count(*) as cnt FROM behavioral_signals WHERE agent_id = $1 AND event_type = $2",
+                    agent_id, event_type,
+                )
+            else:
+                row = await conn.fetchrow(
+                    "SELECT count(*) as cnt FROM behavioral_signals WHERE agent_id = $1",
+                    agent_id,
+                )
+        return row["cnt"] if row else 0
+
     # ─── Migration helper ──────────────────────────────────────────
 
     async def migrate_from_memory(self, identities: dict, trust_chain, revocation_registry) -> dict:

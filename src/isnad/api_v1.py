@@ -465,9 +465,11 @@ def _run_certification(agent_id: str, name: str = "", wallet: str = "",
 
     # --- behavioral (6 modules) ---
     beh_score = 3
+    beh_findings: list[str] = ["no negative behavioral signals"]
+    # Note: behavioral signals from webhooks are applied async in _enrich_behavioral_score()
     categories.append(CategoryScore(name="behavioral", score=round(beh_score / 6 * 100),
                                      modules_passed=beh_score, modules_total=6,
-                                     findings=["no negative behavioral signals"]))
+                                     findings=beh_findings))
     total_passed += beh_score
 
     # --- platform (6 modules) ---
@@ -2036,6 +2038,98 @@ async def recalculate_score(agent_id: str):
         new_score=breakdown.total_score,
         tier=breakdown.tier,
         computed_at=breakdown.computed_at,
+    )
+
+
+# ---------------------------------------------------------------------------
+# PayLock webhook
+# ---------------------------------------------------------------------------
+
+PAYLOCK_VALID_EVENTS = {"escrow_created", "escrow_released", "escrow_disputed"}
+
+
+class PayLockWebhookRequest(BaseModel):
+    """Incoming PayLock escrow event."""
+    event: str = Field(..., description="escrow_created | escrow_released | escrow_disputed")
+    agent_id: str = Field(..., description="isnad agent_id involved in the escrow")
+    contract_id: str = Field(..., description="PayLock contract/escrow ID")
+    amount_sol: float = Field(0.0, description="Amount in SOL")
+    timestamp: Optional[str] = Field(None, description="ISO-8601 event timestamp (default: now)")
+    metadata: dict = Field(default_factory=dict, description="Extra data from PayLock")
+
+
+class PayLockWebhookResponse(BaseModel):
+    """Response after processing a PayLock event."""
+    status: str = "accepted"
+    signal_id: int
+    agent_id: str
+    event: str
+    behavioral_impact: str = Field(description="Description of trust impact")
+
+
+# Event → behavioral impact mapping
+_PAYLOCK_IMPACT = {
+    "escrow_created": "neutral — escrow opened, contract initiated",
+    "escrow_released": "positive — successful delivery, funds released",
+    "escrow_disputed": "negative — dispute raised, trust under review",
+}
+
+
+@router.post(
+    "/webhook/paylock",
+    response_model=PayLockWebhookResponse,
+    tags=["Webhooks"],
+    summary="PayLock escrow webhook",
+    description=(
+        "Receives escrow lifecycle events from PayLock and records them as "
+        "behavioral signals in the isnad trust graph. Events: "
+        "escrow_created, escrow_released, escrow_disputed."
+    ),
+)
+async def paylock_webhook(req: PayLockWebhookRequest):
+    """Process a PayLock escrow event and record it as a behavioral signal."""
+    # Validate event type
+    if req.event not in PAYLOCK_VALID_EVENTS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"Unknown event '{req.event}'. Valid: {sorted(PAYLOCK_VALID_EVENTS)}",
+        )
+
+    # Require DB
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    # Verify agent exists (optional: create stub if not found)
+    agent = await _db.get_agent(req.agent_id)
+    if not agent:
+        agent = await _db.get_agent_by_name(req.agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail=f"Agent '{req.agent_id}' not registered in isnad")
+
+    # Record behavioral signal
+    signal = await _db.create_behavioral_signal(
+        agent_id=agent["id"],
+        source="paylock",
+        event_type=req.event,
+        contract_id=req.contract_id,
+        amount_sol=req.amount_sol,
+        metadata=req.metadata,
+        created_at=req.timestamp or "",
+    )
+
+    impact = _PAYLOCK_IMPACT.get(req.event, "unknown")
+
+    logger.info(
+        "PayLock webhook: event=%s agent=%s contract=%s amount=%.4f SOL",
+        req.event, agent["id"], req.contract_id, req.amount_sol,
+    )
+
+    return PayLockWebhookResponse(
+        status="accepted",
+        signal_id=signal["id"],
+        agent_id=agent["id"],
+        event=req.event,
+        behavioral_impact=impact,
     )
 
 
