@@ -132,7 +132,17 @@ class Database:
 
     async def get_agent_by_name(self, name: str) -> Optional[dict]:
         async with self._pool.acquire() as conn:
+            # Exact case-insensitive match first
             row = await conn.fetchrow("SELECT * FROM agents WHERE LOWER(name) = LOWER($1)", name)
+            if not row:
+                # Fuzzy: strip emoji/special chars and try prefix match (e.g. "gendolf" matches "Gendolf 🤓")
+                import re
+                clean = re.sub(r'[^\w\s-]', '', name).strip().lower()
+                if clean:
+                    row = await conn.fetchrow(
+                        "SELECT * FROM agents WHERE LOWER(REGEXP_REPLACE(name, '[^\\w\\s-]', '', 'g')) LIKE $1 || '%'",
+                        clean,
+                    )
         return _record_to_dict(row) if row else None
 
     async def get_agent_by_pubkey(self, public_key: str) -> Optional[dict]:
