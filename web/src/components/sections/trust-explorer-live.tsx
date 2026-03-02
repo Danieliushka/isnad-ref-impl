@@ -80,7 +80,7 @@ export default function TrustExplorerLive() {
                         className="border-b border-white/[0.04] last:border-0 hover:bg-white/[0.02] transition-colors cursor-pointer"
                       >
                         <td className="px-6 py-4">
-                          <Link href={`/agents/${a.agent_id}`} className="font-mono text-sm text-isnad-teal hover:text-isnad-teal-light transition-colors">
+                          <Link href={`/agents/${encodeURIComponent(a.name)}`} className="font-mono text-sm text-isnad-teal hover:text-isnad-teal-light transition-colors">
                             {a.name}
                           </Link>
                         </td>
