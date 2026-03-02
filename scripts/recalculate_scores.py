@@ -33,9 +33,10 @@ log = logging.getLogger("recalculate_scores")
 # ---------------------------------------------------------------------------
 
 _TRUST_WEIGHTS = {
-    "attestation_count": 0.30,
-    "source_diversity": 0.25,
-    "registration_age": 0.25,
+    "attestation_count": 0.25,
+    "source_diversity": 0.15,
+    "registration_age": 0.15,
+    "profile_completeness": 0.25,
     "verification_status": 0.20,
 }
 
@@ -46,6 +47,12 @@ def compute_trust_score(
     registration_age_days: int,
     is_verified: bool,
     is_certified: bool,
+    platform_count: int = 0,
+    capability_count: int = 0,
+    has_description: bool = False,
+    has_email: bool = False,
+    has_avatar: bool = False,
+    has_offerings: bool = False,
 ) -> int:
     """Compute trust score (0-100) from components."""
     if attestation_count == 0:
@@ -58,7 +65,7 @@ def compute_trust_score(
     else:
         div_score = min(math.log2(source_diversity + 1) / math.log2(6) * 100, 100.0)
 
-    age_score = min(registration_age_days / 365.0 * 100, 100.0)
+    age_score = min(registration_age_days / 90.0 * 100, 100.0)
 
     ver_score = 0.0
     if is_certified:
@@ -67,10 +74,25 @@ def compute_trust_score(
         ver_score += 40.0
     ver_score = min(ver_score, 100.0)
 
+    # Profile completeness: platforms, capabilities, description, email, avatar, offerings
+    profile_score = 0.0
+    profile_score += min(platform_count * 20.0, 40.0)   # up to 2 platforms = 40
+    profile_score += min(capability_count * 8.0, 24.0)   # up to 3 caps = 24
+    if has_description:
+        profile_score += 15.0
+    if has_email:
+        profile_score += 10.0
+    if has_avatar:
+        profile_score += 6.0
+    if has_offerings:
+        profile_score += 5.0
+    profile_score = min(profile_score, 100.0)
+
     overall = (
         att_score * _TRUST_WEIGHTS["attestation_count"]
         + div_score * _TRUST_WEIGHTS["source_diversity"]
         + age_score * _TRUST_WEIGHTS["registration_age"]
+        + profile_score * _TRUST_WEIGHTS["profile_completeness"]
         + ver_score * _TRUST_WEIGHTS["verification_status"]
     )
     return round(overall)
@@ -90,7 +112,10 @@ async def recalculate(dry_run: bool = False) -> dict:
     pool = await asyncpg.create_pool(dsn, min_size=1, max_size=3)
     try:
         async with pool.acquire() as conn:
-            agents = await conn.fetch("SELECT id, created_at, is_certified FROM agents")
+            agents = await conn.fetch(
+                "SELECT id, created_at, is_certified, platforms, capabilities, "
+                "metadata, contact_email, avatar_url, offerings FROM agents"
+            )
 
         now = datetime.now(timezone.utc)
         updated = 0
@@ -129,12 +154,36 @@ async def recalculate(dry_run: bool = False) -> dict:
                     )
                     is_verified = badge_row is not None
 
+                    # Profile completeness
+                    def _parse_json(val):
+                        if val is None:
+                            return [] if not isinstance(val, dict) else {}
+                        if isinstance(val, (list, dict)):
+                            return val
+                        import json as _json
+                        try:
+                            return _json.loads(val)
+                        except Exception:
+                            return {} if '{' in str(val) else []
+
+                    platforms_list = _parse_json(agent.get("platforms") or "[]")
+                    platform_count = len(platforms_list) if isinstance(platforms_list, list) else 0
+
+                    caps_list = _parse_json(agent.get("capabilities") or "[]")
+                    capability_count = len(caps_list) if isinstance(caps_list, list) else 0
+
                     new_score = compute_trust_score(
                         attestation_count=attestation_count,
                         source_diversity=unique_witnesses,
                         registration_age_days=age_days,
                         is_verified=is_verified,
                         is_certified=is_certified,
+                        platform_count=platform_count,
+                        capability_count=capability_count,
+                        has_description=bool(_parse_json(agent.get("metadata")).get("description")),
+                        has_email=bool(agent.get("contact_email")),
+                        has_avatar=bool(agent.get("avatar_url")),
+                        has_offerings=bool(agent.get("offerings")),
                     )
 
                     # Get old score

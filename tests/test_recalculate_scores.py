@@ -6,7 +6,7 @@ from scripts.recalculate_scores import compute_trust_score
 
 
 class TestComputeTrustScore:
-    """Unit tests for compute_trust_score matching api_v1 logic."""
+    """Unit tests for compute_trust_score with profile completeness."""
 
     def test_zero_everything(self):
         score = compute_trust_score(0, 0, 0, False, False)
@@ -14,23 +14,23 @@ class TestComputeTrustScore:
 
     def test_max_attestations(self):
         score = compute_trust_score(100, 0, 0, False, False)
-        # attestation score capped at 100, weight 0.30 → 30
-        assert score == 30
+        # attestation score capped at 100, weight 0.25 → 25
+        assert score == 25
 
     def test_max_diversity(self):
         score = compute_trust_score(0, 100, 0, False, False)
-        # diversity score capped at 100, weight 0.25 → 25
-        assert score == 25
+        # diversity score capped at 100, weight 0.15 → 15
+        assert score == 15
 
     def test_max_age(self):
-        score = compute_trust_score(0, 0, 365, False, False)
-        # age score = 100, weight 0.25 → 25
-        assert score == 25
+        score = compute_trust_score(0, 0, 90, False, False)
+        # age score = 100 (90/90*100), weight 0.15 → 15
+        assert score == 15
 
     def test_max_age_over_year(self):
         score = compute_trust_score(0, 0, 730, False, False)
-        # capped at 100 → 25
-        assert score == 25
+        # capped at 100 → 15
+        assert score == 15
 
     def test_verified_only(self):
         score = compute_trust_score(0, 0, 0, True, False)
@@ -48,18 +48,38 @@ class TestComputeTrustScore:
         assert score == 20
 
     def test_full_score(self):
-        score = compute_trust_score(100, 100, 365, True, True)
+        score = compute_trust_score(
+            100, 100, 90, True, True,
+            platform_count=3, capability_count=5,
+            has_description=True, has_email=True,
+            has_avatar=True, has_offerings=True,
+        )
         assert score == 100
 
+    def test_profile_completeness(self):
+        # Full profile: 2 platforms(40) + 3 caps(24) + desc(15) + email(10) + avatar(6) + offerings(5) = 100
+        score = compute_trust_score(
+            0, 0, 0, False, False,
+            platform_count=2, capability_count=3,
+            has_description=True, has_email=True,
+            has_avatar=True, has_offerings=True,
+        )
+        # profile_score=100, weight 0.25 → 25
+        assert score == 25
+
     def test_realistic_new_agent(self):
-        # New agent: 2 attestations, 1 witness, 7 days old, not verified
-        score = compute_trust_score(2, 1, 7, False, False)
+        # New agent: 2 attestations, 1 witness, 7 days old, not verified, some profile
+        score = compute_trust_score(2, 1, 7, False, False, platform_count=1, has_description=True)
         assert 0 < score < 30
 
     def test_realistic_established_agent(self):
-        # Established: 8 attestations, 4 witnesses, 180 days, verified
-        score = compute_trust_score(8, 4, 180, True, False)
-        assert 30 < score <= 70
+        # Established: 8 attestations, 4 witnesses, 60 days, verified, good profile
+        score = compute_trust_score(
+            8, 4, 60, True, False,
+            platform_count=2, capability_count=4,
+            has_description=True, has_email=True,
+        )
+        assert 30 < score <= 80
 
     def test_score_increases_with_attestations(self):
         s1 = compute_trust_score(1, 1, 30, False, False)

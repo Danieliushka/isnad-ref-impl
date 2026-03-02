@@ -626,6 +626,25 @@ async def stats():
         except Exception:
             pass
 
+    # Fallback: read trust scores from agents table
+    if trust_score_stats.average == 0.0 and _db is not None:
+        try:
+            async with _db._pool.acquire() as conn:
+                agent_scores = await conn.fetchrow(
+                    "SELECT AVG(trust_score) as avg_score, "
+                    "MIN(trust_score) as min_score, "
+                    "MAX(trust_score) as max_score "
+                    "FROM agents WHERE trust_score > 0"
+                )
+                if agent_scores and agent_scores["avg_score"] is not None:
+                    trust_score_stats = TrustScoreStats(
+                        average=round(float(agent_scores["avg_score"]), 2),
+                        min=round(float(agent_scores["min_score"]), 2),
+                        max=round(float(agent_scores["max_score"]), 2),
+                    )
+        except Exception:
+            pass
+
     # Fallback: compute trust scores from in-memory chain if no DB scores
     if trust_score_stats.average == 0.0 and _identities:
         scores = [_trust_chain.trust_score(aid) for aid in _identities]
@@ -706,7 +725,7 @@ async def check_agent_post(request: Request, body: CheckRequest, _caller: dict =
 
 @router.get("/check/{agent_id}", response_model=TrustCheckResult)
 @limiter.limit("60/minute")
-async def check_agent(agent_id: str, request: Request, _caller: dict = Depends(require_api_key_with_rate_limit)):
+async def check_agent(agent_id: str, request: Request):
     """
     **Flagship endpoint** — Run a full 36-module trust evaluation.
     """
