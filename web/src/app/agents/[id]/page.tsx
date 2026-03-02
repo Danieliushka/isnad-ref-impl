@@ -18,52 +18,39 @@ const typeLabels: Record<string, { label: string; color: string }> = {
   'human-supervised': { label: 'Human-Supervised', color: 'text-amber-400 bg-amber-500/15 border-amber-500/20' },
 };
 
-// SVG platform icons — clean, no emoji
-function PlatformIcon({ name, className = "w-5 h-5" }: { name: string; className?: string }) {
-  const key = name.toLowerCase();
-  const strokeProps = { fill: "none", viewBox: "0 0 24 24", stroke: "currentColor", strokeWidth: 1.5, strokeLinecap: "round" as const, strokeLinejoin: "round" as const, className };
+// Platform categories with unified icons
+type PlatformCategory = 'code' | 'marketplace' | 'social' | 'email';
 
-  if (key === 'github') return (
-    <svg {...strokeProps} viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <path d="M12 2C6.477 2 2 6.477 2 12c0 4.42 2.87 8.17 6.84 9.5.5.08.66-.23.66-.5v-1.69c-2.77.6-3.36-1.34-3.36-1.34-.46-1.16-1.11-1.47-1.11-1.47-.91-.62.07-.6.07-.6 1 .07 1.53 1.03 1.53 1.03.87 1.52 2.34 1.07 2.91.83.09-.65.35-1.09.63-1.34-2.22-.25-4.55-1.11-4.55-4.92 0-1.11.38-2 1.03-2.71-.1-.25-.45-1.29.1-2.64 0 0 .84-.27 2.75 1.02.79-.22 1.65-.33 2.5-.33.85 0 1.71.11 2.5.33 1.91-1.29 2.75-1.02 2.75-1.02.55 1.35.2 2.39.1 2.64.65.71 1.03 1.6 1.03 2.71 0 3.82-2.34 4.66-4.57 4.91.36.31.69.92.69 1.85V21c0 .27.16.59.67.5C19.14 20.16 22 16.42 22 12A10 10 0 0012 2z"/>
-    </svg>
-  );
-  if (key === 'ugig') return (
-    <svg {...strokeProps}><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
-  );
-  if (key === 'telegram') return (
-    <svg {...strokeProps} viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <path d="M20.665 3.717l-17.73 6.837c-1.21.486-1.203 1.161-.222 1.462l4.552 1.42 10.532-6.645c.498-.303.953-.14.579.192l-8.533 7.701h-.002l.002.001-.314 4.692c.46 0 .663-.211.921-.46l2.211-2.15 4.599 3.397c.848.467 1.457.227 1.668-.787l3.019-14.228c.309-1.239-.473-1.8-1.282-1.434z"/>
-    </svg>
-  );
-  if (key === 'clawk' || key === 'clawnet') return (
-    <svg {...strokeProps}><path d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"/></svg>
-  );
-  if (key === 'clawstr') return (
-    <svg {...strokeProps}><path d="M7 8h10M7 12h4m1 8l-4-4H5a2 2 0 01-2-2V6a2 2 0 012-2h14a2 2 0 012 2v8a2 2 0 01-2 2h-3l-4 4z"/></svg>
-  );
-  if (key === 'paylock') return (
-    <svg {...strokeProps}><path d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z"/></svg>
-  );
-  if (key === 'agentmail') return (
-    <svg {...strokeProps}><path d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z"/></svg>
-  );
-  if (key === 'moltx' || key === 'moltbook') return (
-    <svg {...strokeProps}><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-  );
-  if (key === 'twitter' || key === 'x') return (
-    <svg {...strokeProps} viewBox="0 0 24 24" fill="currentColor" stroke="none">
-      <path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-5.214-6.817L4.99 21.75H1.68l7.73-8.835L1.254 2.25H8.08l4.713 6.231zm-1.161 17.52h1.833L7.084 4.126H5.117z"/>
-    </svg>
-  );
-  if (key === 'discord') return (
-    <svg {...strokeProps}><path d="M8.5 14.5A1.5 1.5 0 1010 13a1.5 1.5 0 00-1.5 1.5zm7 0A1.5 1.5 0 1017 13a1.5 1.5 0 00-1.5 1.5z"/><path d="M20.317 4.37a19.791 19.791 0 00-4.885-1.515.074.074 0 00-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 00-5.487 0 12.64 12.64 0 00-.617-1.25.077.077 0 00-.079-.037A19.736 19.736 0 003.677 4.37a.07.07 0 00-.032.027C.533 9.046-.32 13.58.099 18.057a.082.082 0 00.031.057 19.9 19.9 0 005.993 3.03.078.078 0 00.084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 00-.041-.106 13.107 13.107 0 01-1.872-.892.077.077 0 01-.008-.128 10.2 10.2 0 00.372-.292.074.074 0 01.077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 01.078.01c.12.098.246.198.373.292a.077.077 0 01-.006.127 12.299 12.299 0 01-1.873.892.077.077 0 00-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 00.084.028 19.839 19.839 0 006.002-3.03.077.077 0 00.032-.054c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 00-.031-.03z"/></svg>
-  );
-  // Default globe icon
-  return (
-    <svg {...strokeProps}><path d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9"/></svg>
-  );
+function categorizePlatform(name: string): PlatformCategory {
+  const key = name.toLowerCase();
+  if (['github', 'gitlab', 'bitbucket', 'npm', 'pypi', 'huggingface'].includes(key)) return 'code';
+  if (['ugig', 'paylock', 'acp', 'virtuals', 'bountycaster', 'immunefi'].includes(key)) return 'marketplace';
+  if (['agentmail', 'email'].includes(key) || key.includes('mail')) return 'email';
+  return 'social'; // clawk, clawstr, telegram, moltx, twitter, discord, etc.
 }
+
+const categoryMeta: Record<PlatformCategory, { label: string; color: string; iconPath: string }> = {
+  code: {
+    label: 'Code',
+    color: 'text-violet-400 border-violet-500/20 bg-violet-500/[0.06]',
+    iconPath: 'M10 20l4-16m4 4l4 4-4 4M6 16l-4-4 4-4', // </>
+  },
+  marketplace: {
+    label: 'Marketplaces',
+    color: 'text-emerald-400 border-emerald-500/20 bg-emerald-500/[0.06]',
+    iconPath: 'M13 10V3L4 14h7v7l9-11h-7z', // bolt
+  },
+  social: {
+    label: 'Social',
+    color: 'text-sky-400 border-sky-500/20 bg-sky-500/[0.06]',
+    iconPath: 'M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0z', // people
+  },
+  email: {
+    label: 'Contact',
+    color: 'text-amber-400 border-amber-500/20 bg-amber-500/[0.06]',
+    iconPath: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z', // envelope
+  },
+};
 
 function getScoreColor(score: number): string {
   if (score >= 80) return '#00d4aa';
@@ -416,53 +403,77 @@ export default function AgentProfilePage() {
         </div>
 
         {/* Platforms */}
-        {agent.platforms && agent.platforms.length > 0 && (
-          <motion.div
-            className="mb-8"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.4 }}
-          >
-            <h2 className="text-sm font-semibold text-zinc-300 mb-4 flex items-center gap-2">
-              <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
-              Connected Platforms
-            </h2>
-            <div className="flex flex-wrap gap-3">
-              {agent.platforms.map((p, i) => {
-                const Wrapper = p.url ? 'a' : 'div';
-                const wrapperProps = p.url ? { href: p.url, target: '_blank', rel: 'noopener noreferrer' } : {};
-                return (
-                  <motion.div
-                    key={i}
-                    initial={{ opacity: 0, scale: 0.9 }}
-                    animate={{ opacity: 1, scale: 1 }}
-                    transition={{ delay: 0.5 + i * 0.05 }}
-                  >
-                    <Wrapper {...wrapperProps} className={p.url ? 'block cursor-pointer group' : 'block'}>
-                      <div className={`flex items-center gap-2.5 px-4 py-2.5 rounded-xl border transition-all duration-300 ${
-                        p.url
-                          ? 'border-white/[0.08] bg-white/[0.03] hover:border-isnad-teal/40 hover:bg-isnad-teal/[0.06] hover:shadow-[0_0_20px_-6px_rgba(0,212,170,0.2)]'
-                          : 'border-white/[0.06] bg-white/[0.02]'
-                      }`}>
-                        <div className="text-zinc-500 group-hover:text-isnad-teal transition-colors">
-                          <PlatformIcon name={p.name} className="w-[18px] h-[18px]" />
-                        </div>
-                        <span className="text-sm font-medium text-zinc-400 group-hover:text-zinc-200 transition-colors capitalize">
-                          {p.name}
-                        </span>
-                        {p.url && (
-                          <svg className="w-3 h-3 text-zinc-700 group-hover:text-isnad-teal/60 transition-colors ml-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
-                          </svg>
-                        )}
+        {agent.platforms && agent.platforms.length > 0 && (() => {
+          // Group platforms by category
+          const grouped: Record<PlatformCategory, typeof agent.platforms> = { code: [], marketplace: [], social: [], email: [] };
+          agent.platforms.forEach(p => {
+            const cat = (p as { category?: string }).category as PlatformCategory || categorizePlatform(p.name);
+            if (!grouped[cat]) grouped[cat] = [];
+            grouped[cat].push(p);
+          });
+          const activeCategories = (Object.keys(grouped) as PlatformCategory[]).filter(k => grouped[k].length > 0);
+
+          return (
+            <motion.div
+              className="mb-8"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+            >
+              <h2 className="text-sm font-semibold text-zinc-300 mb-5 flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
+                Connected Platforms
+                <span className="text-[10px] text-zinc-600 font-mono ml-2">{agent.platforms.length} verified</span>
+              </h2>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                {activeCategories.map((cat, ci) => {
+                  const meta = categoryMeta[cat];
+                  const platforms = grouped[cat];
+                  return (
+                    <motion.div
+                      key={cat}
+                      initial={{ opacity: 0, y: 12 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ delay: 0.45 + ci * 0.08 }}
+                      className={`rounded-2xl border p-4 ${meta.color}`}
+                    >
+                      <div className="flex items-center gap-2 mb-3">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.5} strokeLinecap="round" strokeLinejoin="round">
+                          <path d={meta.iconPath} />
+                        </svg>
+                        <span className="text-xs font-semibold uppercase tracking-wider">{meta.label}</span>
                       </div>
-                    </Wrapper>
-                  </motion.div>
-                );
-              })}
-            </div>
-          </motion.div>
-        )}
+                      <div className="flex flex-wrap gap-2">
+                        {platforms.map((p, pi) => {
+                          const isLink = !!p.url;
+                          const inner = (
+                            <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
+                              isLink
+                                ? 'bg-white/[0.06] text-zinc-300 hover:bg-white/[0.12] hover:text-white cursor-pointer'
+                                : 'bg-white/[0.03] text-zinc-500'
+                            }`}>
+                              {p.name}
+                              {isLink && (
+                                <svg className="w-3 h-3 opacity-40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 19.5l15-15m0 0H8.25m11.25 0v11.25" />
+                                </svg>
+                              )}
+                            </span>
+                          );
+                          return isLink ? (
+                            <a key={pi} href={p.url} target="_blank" rel="noopener noreferrer">{inner}</a>
+                          ) : (
+                            <span key={pi}>{inner}</span>
+                          );
+                        })}
+                      </div>
+                    </motion.div>
+                  );
+                })}
+              </div>
+            </motion.div>
+          );
+        })()}
 
         {/* Capabilities */}
         {agent.capabilities && agent.capabilities.length > 0 && (
