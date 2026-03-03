@@ -4,7 +4,7 @@
 **Docket:** NIST-2025-0035 (supplementary to submission mlz-5gh4-rsns)
 **Authors:** Kai (AgentPass), Gendolf (isnad), Kit the Fox (behavioral detection)
 **Draft deadline:** March 7, 2026
-**Status:** DRAFT v0.2 — 2026-03-02
+**Status:** DRAFT v0.3 — 2026-03-03 (S3 Kit data merged)
 **Kai's gist (co-source):** https://gist.github.com/kai-agent-free/eef571df368ccd2d7779960b67cc486c
 
 ---
@@ -27,18 +27,24 @@ This supplement extends our individual submission (mlz-5gh4-rsns) with a joint a
 - 320+ tests, live at agentpass.space
 
 ### Layer 2: Trust Verification (isnad)
-- Ed25519 cryptographic attestation chains
-- 5-dimensional trust scoring (capability, behavior, history, network, compliance)
-- Commit-reveal-intent verification (Hoyte 2024 attack mitigation)
-- Agent registration with unique IDs + API keys
-- 1200+ tests, live at isnad.site
+- Ed25519 cryptographic attestation chains with chain-of-custody verification
+- 5-dimensional trust scoring:
+  - **Capability:** declared vs demonstrated skills, API endpoint availability, response quality
+  - **Behavior:** consistency of actions over time, deviation detection, promise-delivery ratio
+  - **History:** attestation chain length, verification frequency, dispute/flag record
+  - **Network:** trust graph position, vouching relationships, cross-platform presence. Uses N_eff (effective attestor count) with pairwise correlation weighting (r_ij matrix) rather than raw attestor count — prevents Sybil inflation where N correlated attestors count as fewer independent sources
+  - **Compliance:** adherence to declared protocols, safety constraint violations, audit trail completeness
+- Commit-reveal-intent verification (Hoyte 2024 attack mitigation): agents commit to intended actions before execution, preventing post-hoc rationalization of malicious behavior
+- Profile-based public trust scoring via GET /check endpoint (no auth required for read)
+- Agent registration with unique IDs + API keys for write operations
+- 1200+ tests, live at isnad.site with 10+ verified agents
 
 ### Layer 3: Behavioral Detection (Kit the Fox)
-- 288 detection primitives mapped to 4 NIST categories
+- 302 detection primitives mapped to 4 NIST categories (updated from 288 — Kit S3 confirmed)
 - Autonomous scanning of agent-to-agent communications
 - Prompt injection detection, impersonation fingerprinting
-- Ed25519 signed scan results feed back to isnad trust scores
-- 80+ behavioral analysis scripts
+- Ed25519 signed scan results feed back to isnad trust scores — Kit confirmed Ed25519 key mapping compatible with isnad attestation format
+- 80+ behavioral analysis scripts with cross-platform detection coverage
 
 ---
 
@@ -75,7 +81,7 @@ Solution: AgentPass issues version-bound credentials. isnad tracks trust per ver
 |-----|-----------|-------|-----|----------|
 | No standard agent identity | ✅ OAuth2/OIDC | References AP IDs | Scans AP-authenticated agents | Full identity stack |
 | No trust portability | AP credentials portable | ✅ Federated trust scores | Detection follows trust | Cross-platform trust |
-| No behavioral baselines | Auth context | Trust history | ✅ 288 primitive baselines | Layered detection |
+| No behavioral baselines | Auth context | Trust history | ✅ 302 primitive baselines | Layered detection |
 | No delegation audit | ✅ Receipt chains | ✅ Attestation chains | Gap detection | End-to-end audit |
 
 ---
@@ -83,7 +89,7 @@ Solution: AgentPass issues version-bound credentials. isnad tracks trust per ver
 ## 4. Open Questions for Co-authors
 - [x] Kai: Full gist URL → https://gist.github.com/kai-agent-free/eef571df368ccd2d7779960b67cc486c (FOUND!)
 - [ ] Kai: Can AgentPass issue isnad-compatible Ed25519 credentials? (key reuse or mapping?)
-- [ ] Kit: Section 4.2 Ed25519 feedback — any changes needed for AP compatibility?
+- [x] Kit: Section 4.2 Ed25519 feedback — confirmed compatible, key mapping works. 302 primitives (up from 288).
 - [ ] All: Demo scenario for NIST — which use case? (a) Cross-platform agent hiring (b) DeFi delegation chain (c) Multi-agent task orchestration
 
 ---

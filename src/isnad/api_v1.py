@@ -2075,6 +2075,67 @@ _PAYLOCK_IMPACT = {
 }
 
 
+@router.get("/badge/{agent_id}", tags=["Public"], summary="Dynamic SVG trust badge")
+async def get_badge_svg(agent_id: str):
+    """Generate a dynamic SVG badge showing the agent's trust score and tier."""
+    from fastapi.responses import Response
+
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        agent = await _db.get_agent_by_name(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    score = round(agent.get("trust_score", 0))
+    name = agent.get("name", agent_id)
+
+    if score >= 80:
+        tier, color, bg = "TRUSTED", "#00d4aa", "#0a2922"
+    elif score >= 60:
+        tier, color, bg = "VERIFIED", "#22d3ee", "#0a2429"
+    elif score >= 40:
+        tier, color, bg = "BASIC", "#f59e0b", "#29220a"
+    elif score >= 20:
+        tier, color, bg = "UNVERIFIED", "#fb923c", "#291a0a"
+    else:
+        tier, color, bg = "NEW", "#71717a", "#1a1a1a"
+
+    # Calculate widths
+    name_w = max(len(name) * 7 + 20, 60)
+    score_w = 90
+    total_w = name_w + score_w
+
+    svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="{total_w}" height="28" viewBox="0 0 {total_w} 28">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0%" stop-color="#18181b"/>
+      <stop offset="100%" stop-color="#1c1c22"/>
+    </linearGradient>
+  </defs>
+  <rect width="{total_w}" height="28" rx="6" fill="url(#bg)" stroke="{color}" stroke-width="0.5" stroke-opacity="0.3"/>
+  <rect x="{name_w}" width="{score_w}" height="28" rx="0" fill="{bg}"/>
+  <rect x="{total_w - 6}" width="6" height="28" rx="0" fill="{bg}"/>
+  <rect x="{total_w - 6}" y="0" width="6" height="28" rx="6" fill="{bg}"/>
+  <text x="8" y="18" font-family="system-ui,-apple-system,sans-serif" font-size="11" font-weight="600" fill="#a1a1aa">isnad</text>
+  <text x="38" y="18" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#d4d4d8">|</text>
+  <text x="46" y="18" font-family="system-ui,-apple-system,sans-serif" font-size="11" fill="#e4e4e7">{name}</text>
+  <text x="{name_w + 10}" y="18" font-family="system-ui,-apple-system,monospace" font-size="11" font-weight="700" fill="{color}">{score}</text>
+  <text x="{name_w + 32}" y="18" font-family="system-ui,-apple-system,sans-serif" font-size="9" fill="{color}" opacity="0.8">{tier}</text>
+</svg>'''
+
+    return Response(
+        content=svg,
+        media_type="image/svg+xml",
+        headers={
+            "Cache-Control": "public, max-age=300",
+            "Access-Control-Allow-Origin": "*",
+        },
+    )
+
+
 @router.post(
     "/webhook/paylock",
     response_model=PayLockWebhookResponse,
