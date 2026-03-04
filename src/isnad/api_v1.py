@@ -1666,6 +1666,46 @@ async def get_trust_score(agent_id: str):
     )
 
 
+class ScoreV3DimensionOut(BaseModel):
+    raw: float
+    weighted: float
+
+
+class ScoreV3DimensionsOut(BaseModel):
+    provenance: ScoreV3DimensionOut
+    track_record: ScoreV3DimensionOut
+    presence: ScoreV3DimensionOut
+    endorsements: ScoreV3DimensionOut
+
+
+class ScoreV3Response(BaseModel):
+    score: int = Field(ge=0, le=100)
+    confidence: float = Field(ge=0, le=1.0)
+    tier: str
+    dimensions: ScoreV3DimensionsOut
+    decay_factor: float
+    computed_at: str
+
+
+@router.get("/agents/{agent_id}/score", response_model=ScoreV3Response)
+async def get_agent_score_v3(agent_id: str):
+    """Get v3 trust score with full breakdown (4 dimensions + confidence + tier)."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        agent = await _db.get_agent_by_name(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    from isnad.scoring.engine_v3 import ScoringEngineV3
+    engine = ScoringEngineV3(db=_db)
+    result = await engine.compute_and_store(agent)
+
+    return ScoreV3Response(**result.to_dict())
+
+
 @router.get("/trust-score-v2/{agent_id}")
 async def trust_score_v2_compat(agent_id: str, request: Request):
     """Backward-compatible trust-score-v2 endpoint.
