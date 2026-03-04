@@ -9,7 +9,7 @@ ALTER TABLE attestations ADD COLUMN IF NOT EXISTS is_negative BOOLEAN DEFAULT FA
 
 CREATE TABLE IF NOT EXISTS score_audit (
     id SERIAL PRIMARY KEY,
-    agent_id UUID REFERENCES agents(id),
+    agent_id TEXT REFERENCES agents(id),
     computed_at TIMESTAMPTZ DEFAULT NOW(),
     final_score INT,
     confidence FLOAT,

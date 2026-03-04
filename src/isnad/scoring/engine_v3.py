@@ -291,10 +291,11 @@ class ScoringEngineV3:
             pname = (p.get("name", "") or "").lower()
             purl = p.get("url", "") or ""
             if "github" in pname or "github.com" in purl:
-                # Extract username from URL
-                parts = purl.rstrip("/").split("/")
-                if parts:
-                    github_username = parts[-1]
+                # Extract username from URL: github.com/{user} or github.com/{user}/{repo}
+                parts = [x for x in purl.replace("https://", "").replace("http://", "").split("/") if x]
+                # parts[0] = "github.com", parts[1] = username, parts[2] = repo (optional)
+                if len(parts) >= 2:
+                    github_username = parts[1]
                 break
 
         # Collect data
@@ -372,7 +373,7 @@ class ScoringEngineV3:
                     trust_score=result.final_score,
                     trust_confidence=result.confidence,
                     trust_tier=result.tier,
-                    last_scored_at=result.computed_at,
+                    last_scored_at=datetime.now(timezone.utc),
                 )
             except Exception as e:
                 logger.warning("Failed to update agent score: %s", e)
