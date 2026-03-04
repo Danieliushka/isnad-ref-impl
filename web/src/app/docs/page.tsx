@@ -37,7 +37,7 @@ const endpoints: Endpoint[] = [
     params: [
       { name: "agent_id", type: "string", required: true, description: "Agent ID, name, or public key" },
     ],
-    curl: `curl https://api.isnad.dev/api/v1/check/gpt-4-assistant`,
+    curl: `curl https://isnad.site/api/v1/check/gpt-4-assistant`,
     response: JSON.stringify(
       {
         agent_id: "gpt-4-assistant",
@@ -73,7 +73,7 @@ const endpoints: Endpoint[] = [
       { name: "search", type: "string", required: false, description: "Filter by agent ID or name" },
       { name: "sort", type: "string", required: false, description: "Sort field: trust_score | name | last_checked" },
     ],
-    curl: `curl "https://api.isnad.dev/api/v1/explorer?page=1&limit=5"`,
+    curl: `curl "https://isnad.site/api/v1/explorer?page=1&limit=5"`,
     response: JSON.stringify(
       {
         agents: [
@@ -97,7 +97,7 @@ const endpoints: Endpoint[] = [
     params: [
       { name: "agent_id", type: "string", required: true, description: "Agent ID or public key" },
     ],
-    curl: `curl https://api.isnad.dev/api/v1/explorer/gpt-4-assistant`,
+    curl: `curl https://isnad.site/api/v1/explorer/gpt-4-assistant`,
     response: JSON.stringify(
       {
         agent_id: "gpt-4-assistant",
@@ -121,7 +121,7 @@ const endpoints: Endpoint[] = [
     description: "Platform-wide statistics: agents checked, attestations verified, average response time, uptime.",
     auth: false,
     params: [],
-    curl: `curl https://api.isnad.dev/api/v1/stats`,
+    curl: `curl https://isnad.site/api/v1/stats`,
     response: JSON.stringify(
       { agents_checked: 1482, attestations_verified: 8391, avg_response_ms: 42.5, uptime: 864000.0 },
       null,
@@ -135,7 +135,7 @@ const endpoints: Endpoint[] = [
     description: "Returns 200 if the service is running. Use for monitoring.",
     auth: false,
     params: [],
-    curl: `curl https://api.isnad.dev/api/v1/health`,
+    curl: `curl https://isnad.site/api/v1/health`,
     response: JSON.stringify({ status: "ok", version: "0.3.0", modules: 36, tests: 1029 }, null, 2),
   },
   {
@@ -149,7 +149,7 @@ const endpoints: Endpoint[] = [
       { name: "owner_email", type: "string", required: true, description: "Email of key owner" },
       { name: "rate_limit", type: "int", required: false, description: "Requests per minute (default: 100)" },
     ],
-    curl: `curl -X POST https://api.isnad.dev/api/v1/keys \\
+    curl: `curl -X POST https://isnad.site/api/v1/keys \\
   -H "Content-Type: application/json" \\
   -d '{"owner_email": "you@example.com"}'`,
     response: JSON.stringify(
@@ -177,7 +177,7 @@ const endpoints: Endpoint[] = [
       { name: "capabilities", type: "string[]", required: false, description: "List of capabilities" },
       { name: "evidence_urls", type: "string[]", required: false, description: "External profile/repo URLs" },
     ],
-    curl: `curl -X POST https://api.isnad.dev/api/v1/certify \\
+    curl: `curl -X POST https://isnad.site/api/v1/certify \\
   -H "X-API-Key: isnad_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"agent_id": "my-agent", "platform": "openai"}'`,
@@ -204,7 +204,7 @@ const endpoints: Endpoint[] = [
       { name: "name", type: "string", required: false, description: "Display name" },
       { name: "metadata", type: "object", required: false, description: "Arbitrary metadata" },
     ],
-    curl: `curl -X POST https://api.isnad.dev/api/v1/identity \\
+    curl: `curl -X POST https://isnad.site/api/v1/identity \\
   -H "X-API-Key: isnad_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"agent_id": "my-agent", "name": "My Agent"}'`,
@@ -226,7 +226,7 @@ const endpoints: Endpoint[] = [
       { name: "claim", type: "string", required: true, description: "Attestation claim" },
       { name: "signature", type: "string", required: true, description: "Ed25519 signature" },
     ],
-    curl: `curl -X POST https://api.isnad.dev/api/v1/attest \\
+    curl: `curl -X POST https://isnad.site/api/v1/attest \\
   -H "X-API-Key: isnad_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"subject": "agent-a", "witness": "agent-b", "claim": "reliable", "signature": "base64..."}'`,
@@ -371,7 +371,7 @@ export default function DocsPage() {
               </p>
               <div className="flex gap-3 mt-4">
                 <span className="text-xs font-mono bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-zinc-400">
-                  Base URL: <span className="text-isnad-teal">https://api.isnad.dev</span>
+                  Base URL: <span className="text-isnad-teal">https://isnad.site</span>
                 </span>
                 <span className="text-xs font-mono bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-zinc-400">
                   Version: <span className="text-isnad-teal">v0.3.0</span>
@@ -387,14 +387,14 @@ export default function DocsPage() {
                   {
                     step: 1,
                     title: "Get an API key",
-                    content: `curl -X POST https://api.isnad.dev/api/v1/keys \\
+                    content: `curl -X POST https://isnad.site/api/v1/keys \\
   -H "Content-Type: application/json" \\
   -d '{"owner_email": "you@example.com"}'`,
                   },
                   {
                     step: 2,
                     title: "Make your first trust check",
-                    content: `curl https://api.isnad.dev/api/v1/check/gpt-4-assistant`,
+                    content: `curl https://isnad.site/api/v1/check/gpt-4-assistant`,
                   },
                   {
                     step: 3,
@@ -430,7 +430,7 @@ export default function DocsPage() {
                 <p className="text-zinc-400 text-sm">
                   Write endpoints (<code className="text-isnad-teal">/certify</code>, <code className="text-isnad-teal">/identity</code>, <code className="text-isnad-teal">/attest</code>) require an API key via the <code className="text-isnad-teal font-mono">X-API-Key</code> header:
                 </p>
-                <CodeBlock>{`curl -H "X-API-Key: isnad_YOUR_KEY" https://api.isnad.dev/api/v1/certify`}</CodeBlock>
+                <CodeBlock>{`curl -H "X-API-Key: isnad_YOUR_KEY" https://isnad.site/api/v1/certify`}</CodeBlock>
                 <p className="text-zinc-400 text-sm">
                   Generate a key via <code className="text-isnad-teal">POST /api/v1/keys</code>. The raw key is shown only once — store it securely.
                 </p>
@@ -479,20 +479,20 @@ function SdkTabs() {
   const python = `import requests
 
 # Trust check
-resp = requests.get("https://api.isnad.dev/api/v1/check/gpt-4-assistant")
+resp = requests.get("https://isnad.site/api/v1/check/gpt-4-assistant")
 data = resp.json()
 print(f"Score: {data['overall_score']}, Certified: {data['certified']}")
 
 # Generate API key
 resp = requests.post(
-    "https://api.isnad.dev/api/v1/keys",
+    "https://isnad.site/api/v1/keys",
     json={"owner_email": "you@example.com"}
 )
 api_key = resp.json()["api_key"]
 
 # Submit attestation (authenticated)
 requests.post(
-    "https://api.isnad.dev/api/v1/attest",
+    "https://isnad.site/api/v1/attest",
     headers={"X-API-Key": api_key},
     json={
         "subject": "agent-a",
@@ -503,12 +503,12 @@ requests.post(
 )`;
 
   const javascript = `// Trust check
-const resp = await fetch("https://api.isnad.dev/api/v1/check/gpt-4-assistant");
+const resp = await fetch("https://isnad.site/api/v1/check/gpt-4-assistant");
 const data = await resp.json();
 console.log(\`Score: \${data.overall_score}, Certified: \${data.certified}\`);
 
 // Generate API key
-const keyResp = await fetch("https://api.isnad.dev/api/v1/keys", {
+const keyResp = await fetch("https://isnad.site/api/v1/keys", {
   method: "POST",
   headers: { "Content-Type": "application/json" },
   body: JSON.stringify({ owner_email: "you@example.com" }),
@@ -516,7 +516,7 @@ const keyResp = await fetch("https://api.isnad.dev/api/v1/keys", {
 const { api_key } = await keyResp.json();
 
 // Submit attestation (authenticated)
-await fetch("https://api.isnad.dev/api/v1/attest", {
+await fetch("https://isnad.site/api/v1/attest", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",

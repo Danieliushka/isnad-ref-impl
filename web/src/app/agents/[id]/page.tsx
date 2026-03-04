@@ -69,6 +69,26 @@ function daysSince(dateStr: string): number {
   return Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24));
 }
 
+function normalizePlatformUrl(name: string, rawUrl?: string): string | null {
+  const raw = (rawUrl || '').trim();
+  if (!raw) return null;
+
+  if (/^https?:\/\//i.test(raw)) return raw;
+
+  const key = name.toLowerCase();
+  const handle = raw.replace(/^@/, '');
+
+  if (key === 'clawstr') return `https://clawstr.com/${handle}`;
+  if (key === 'clawk') return `https://clawk.ai/${handle}`;
+  if (key === 'github') return `https://github.com/${handle}`;
+  if (key === 'twitter' || key === 'x') return `https://x.com/${handle}`;
+  if (key === 'telegram') return `https://t.me/${handle}`;
+  if ((key === 'agentmail' || key === 'email') && handle.includes('@')) return `mailto:${handle}`;
+
+  if (/^[\w.-]+\.[a-z]{2,}(\/.*)?$/i.test(raw)) return `https://${raw}`;
+  return null;
+}
+
 function ScoreBar({ label, score, delay = 0 }: { label: string; score: number; delay?: number }) {
   const color = getScoreColor(score);
   return (
@@ -299,6 +319,13 @@ export default function AgentProfilePage() {
                 <span title={agent.agent_id}>ID: {agent.agent_id.slice(0, 12)}…</span>
                 <span>Registered: {new Date(agent.created_at).toLocaleDateString()}</span>
                 {trustV2 && <span>Confidence: {trustV2.total_confidence.toFixed(2)}</span>}
+                <a
+                  href={`/badge/${encodeURIComponent(agent.name || agent.agent_id)}`}
+                  className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-medium text-isnad-teal bg-isnad-teal/10 border border-isnad-teal/20 hover:bg-isnad-teal/20 transition-colors"
+                >
+                  <svg width="12" height="12" viewBox="0 0 32 32" fill="none"><path d="M16 2L4 8v8c0 7 5 13 12 15 7-2 12-8 12-15V8L16 2z" stroke="currentColor" strokeWidth="2" fill="none"/><path d="M11 16l3 3 7-7" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+                  Get Badge
+                </a>
               </div>
             </div>
           </div>
@@ -420,11 +447,19 @@ export default function AgentProfilePage() {
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: 0.4 }}
             >
-              <h2 className="text-sm font-semibold text-zinc-300 mb-5 flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
-                Connected Platforms
-                <span className="text-[10px] text-zinc-600 font-mono ml-2">{agent.platforms.length} verified</span>
-              </h2>
+              <div className="mb-5 flex flex-wrap items-center gap-2">
+                <h2 className="text-sm font-semibold text-zinc-300 flex items-center gap-2">
+                  <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
+                  Connected Platforms
+                  <span className="text-[10px] text-zinc-600 font-mono ml-2">{agent.platforms.length} verified</span>
+                </h2>
+                <a
+                  href={`/badge/${encodeURIComponent(agent.name || agent.agent_id)}`}
+                  className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[10px] font-medium text-isnad-teal bg-isnad-teal/10 border border-isnad-teal/20 hover:bg-isnad-teal/20 transition-colors"
+                >
+                  Get Badge
+                </a>
+              </div>
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 {activeCategories.map((cat, ci) => {
                   const meta = categoryMeta[cat];
@@ -445,7 +480,8 @@ export default function AgentProfilePage() {
                       </div>
                       <div className="flex flex-wrap gap-2">
                         {platforms.map((p, pi) => {
-                          const isLink = !!p.url;
+                          const href = normalizePlatformUrl(p.name, p.url);
+                          const isLink = !!href;
                           const inner = (
                             <span className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-all duration-200 ${
                               isLink
@@ -461,7 +497,7 @@ export default function AgentProfilePage() {
                             </span>
                           );
                           return isLink ? (
-                            <a key={pi} href={p.url} target="_blank" rel="noopener noreferrer">{inner}</a>
+                            <a key={pi} href={href} target="_blank" rel="noopener noreferrer">{inner}</a>
                           ) : (
                             <span key={pi}>{inner}</span>
                           );

@@ -5,14 +5,21 @@ import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
 import { Card } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
-import { recentlyChecked } from '@/lib/mock-data';
-import { useState } from 'react';
+import { listAgents, type AgentProfile } from '@/lib/api';
+import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 
 export default function CheckPage() {
   const [agentId, setAgentId] = useState('');
+  const [recentAgents, setRecentAgents] = useState<AgentProfile[]>([]);
   const router = useRouter();
+
+  useEffect(() => {
+    listAgents({ limit: 4 })
+      .then((res) => setRecentAgents(res.agents))
+      .catch(() => {});
+  }, []);
 
   function handleCheck() {
     if (agentId.trim()) {
@@ -78,22 +85,22 @@ export default function CheckPage() {
             transition={{ delay: 0.4 }}
           >
             <h2 className="text-[10px] font-mono tracking-[0.2em] uppercase text-zinc-500 mb-4 text-center">
-              Recently Checked
+              Registered Agents
             </h2>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
-              {recentlyChecked.slice(0, 4).map((agent: { id: string; name: string; score: number }, i: number) => (
+              {recentAgents.map((agent, i) => (
                 <motion.div
-                  key={agent.id}
+                  key={agent.agent_id}
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ delay: 0.5 + i * 0.1 }}
                 >
                   <Card
                     className="p-4 cursor-pointer hover:scale-[1.02] transition-transform text-center"
-                    onClick={() => router.push(`/check/${agent.id}`)}
+                    onClick={() => router.push(`/check/${encodeURIComponent(agent.name)}`)}
                   >
                     <p className="font-mono text-isnad-teal text-sm mb-2">{agent.name}</p>
-                    <Badge score={agent.score}>{agent.score}</Badge>
+                    <Badge score={Math.round(agent.trust_score)}>{Math.round(agent.trust_score)}</Badge>
                   </Card>
                 </motion.div>
               ))}
