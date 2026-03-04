@@ -2187,8 +2187,29 @@ async def get_badge_svg(agent_id: str):
         "escrow_created, escrow_released, escrow_disputed."
     ),
 )
-async def paylock_webhook(req: PayLockWebhookRequest):
+async def paylock_webhook(request: Request):
     """Process a PayLock escrow event and record it as a behavioral signal."""
+    # Read raw body first (needed for HMAC before JSON parsing)
+    body = await request.body()
+
+    # HMAC-SHA256 validation
+    hmac_secret = os.environ.get("PAYLOCK_HMAC_SECRET", "")
+    if hmac_secret:
+        signature = request.headers.get("X-PayLock-Signature", "")
+        expected = hmac.new(
+            hmac_secret.encode(), body, hashlib.sha256
+        ).hexdigest()
+        if not hmac.compare_digest(signature, expected):
+            raise HTTPException(status_code=401, detail="Invalid HMAC signature")
+
+    # Parse and validate body
+    import json as _json
+    try:
+        data = _json.loads(body)
+        req = PayLockWebhookRequest(**data)
+    except Exception as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
     # Validate event type
     if req.event not in PAYLOCK_VALID_EVENTS:
         raise HTTPException(
