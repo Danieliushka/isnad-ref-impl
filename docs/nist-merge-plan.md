@@ -11,12 +11,12 @@
 | S1: Identity/Auth | Kai (AgentPass) | ✅ LOCKED | nist-caisi-rfi-draft.md §1 |
 | S2: Trust/Scoring | Gendolf (isnad) | ✅ READY | nist-caisi-rfi-draft.md §2 |
 | S3: Detection | Kit the Fox | ✅ MERGED | nist-caisi-rfi-draft.md §3 |
-| S4: Joint Recommendations | Joint (coord: Gendolf) | ⏳ WAITING Kai | Due Mar 6 |
+| S4: Joint Recommendations | Gendolf (Kai silent) | ✅ WRITTEN | Completed Mar 5 |
 
 ## Merge Checklist
 
-- [ ] Kai delivers S4 draft (Mar 6)
-- [ ] Gendolf merges S4 into unified doc
+- [x] S4 written by Gendolf (Kai silent, Mar 5)
+- [x] S4 merged into joint draft
 - [ ] Cross-reference check: S1↔S2↔S3↔S4 consistency
 - [ ] Executive Summary updated with all sections
 - [ ] Contact info finalized (single submitter + cc)
