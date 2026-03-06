@@ -79,7 +79,7 @@ async def fetch_coinpay_reputation(did: str) -> CoinPayData:
             if not data.get("success"):
                 return CoinPayData(did=did, error="API returned success=false")
 
-            # Parse trust vector if present
+            # Parse trust vector (top-level key)
             tv = CoinPayTrustVector()
             tv_data = data.get("trust_vector") or {}
             if tv_data:
@@ -91,21 +91,32 @@ async def fetch_coinpay_reputation(did: str) -> CoinPayData:
                 tv.anomaly = float(tv_data.get("A", 0))
                 tv.compliance = float(tv_data.get("C", 0))
 
-            # Parse window stats
-            rep = data.get("reputation", {})
-            windows = rep.get("windows", {})
-            lifetime = windows.get("lifetime", {})
+            # Score from trust_tier (not top-level)
+            trust_tier = data.get("trust_tier") or {}
+            score = float(trust_tier.get("score", 0))
+
+            # Window stats from reputation.windows.all_time
+            rep = data.get("reputation") or {}
+            windows = rep.get("windows") or {}
+            all_time = windows.get("all_time") or {}
+
+            total_tasks = int(all_time.get("task_count", 0))
+            accepted = int(all_time.get("accepted_count", 0))
+            success_rate = float(all_time.get("accepted_rate", 0))
+            # If accepted_rate not provided, compute from counts
+            if success_rate == 0 and total_tasks > 0:
+                success_rate = accepted / total_tasks
 
             return CoinPayData(
                 found=True,
                 did=did,
-                score=float(data.get("score", 0)),
-                total_tasks=int(data.get("totalTasks", 0)),
-                success_rate=float(data.get("successRate", 0)),
+                score=score,
+                total_tasks=total_tasks,
+                success_rate=success_rate,
                 trust_vector=tv,
-                lifetime_volume_usd=float(lifetime.get("volume", 0)),
-                lifetime_dispute_rate=float(lifetime.get("disputeRate", 0)),
-                unique_buyers=int(lifetime.get("uniqueBuyers", 0)),
+                lifetime_volume_usd=float(all_time.get("total_volume", 0)),
+                lifetime_dispute_rate=float(all_time.get("dispute_rate", 0)),
+                unique_buyers=int(all_time.get("unique_buyers", 0)),
             )
 
     except httpx.TimeoutException:
