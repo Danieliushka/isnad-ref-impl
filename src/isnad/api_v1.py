@@ -47,11 +47,20 @@ class CategoryScore(BaseModel):
     findings: list[str] = []
 
 
+class DimensionScore(BaseModel):
+    """Score for a single v3 dimension."""
+    raw: float = 0.0
+    weighted: float = 0.0
+
+
 class TrustCheckResult(BaseModel):
     """Full trust-check report returned by /check/{agent_id}."""
     agent_id: str
     overall_score: int = Field(ge=0, le=100, description="Aggregate trust score 0-100")
-    confidence: str = Field(description="high | medium | low")
+    confidence: float = Field(0.0, description="Confidence 0.0-1.0")
+    tier: str = Field("UNKNOWN", description="UNKNOWN | EMERGING | ESTABLISHED | TRUSTED")
+    dimensions: Optional[dict[str, DimensionScore]] = Field(None, description="v3 scoring dimensions")
+    decay_factor: float = Field(1.0, description="Freshness decay factor")
     risk_flags: list[str] = []
     attestation_count: int = 0
     last_checked: str = Field(description="ISO-8601 timestamp")
@@ -507,13 +516,13 @@ def _run_certification(agent_id: str, name: str = "", wallet: str = "",
 
     overall = round(total_passed / 36 * 100)
 
-    # confidence
+    # confidence (float 0.0-1.0)
     if evidence_urls and wallet and platform:
-        confidence = "high"
+        confidence = 0.8
     elif wallet or platform:
-        confidence = "medium"
+        confidence = 0.5
     else:
-        confidence = "low"
+        confidence = 0.2
 
     # risk flags
     risk_flags: list[str] = []
@@ -675,97 +684,129 @@ class CheckRequest(BaseModel):
     raw_hash: Optional[str] = Field(None, max_length=128, description="Optional content hash for commit-reveal-intent verification (hex-encoded)")
 
 
+async def _run_v3_check(agent_identifier: str, request: Request, raw_hash: str | None = None) -> TrustCheckResult:
+    """Shared v3 trust check logic for all /check variants."""
+    t0 = time.time()
+
+    agent_row = None
+    resolved_id = agent_identifier
+    if _db is not None:
+        try:
+            agent_row = await _db.get_agent(agent_identifier)
+            if agent_row is None:
+                agent_row = await _db.get_agent_by_name(agent_identifier)
+            if agent_row is None:
+                agent_row = await _db.get_agent_by_pubkey(agent_identifier)
+            if agent_row is not None:
+                resolved_id = agent_row["id"]
+        except Exception:
+            pass
+
+    # Use v3 engine if agent is in DB
+    if agent_row is not None and _db is not None:
+        try:
+            from isnad.scoring.engine_v3 import ScoringEngineV3
+            engine = ScoringEngineV3(db=_db)
+            v3_result = await engine.compute_and_store(agent_row)
+
+            now = datetime.now(timezone.utc)
+            cert_id = hashlib.sha256(f"cert:{resolved_id}:{now.isoformat()}".encode()).hexdigest()[:16]
+
+            risk_flags: list[str] = []
+            if v3_result.confidence < 0.2:
+                risk_flags.append("low_confidence")
+            if v3_result.track_record.raw < 0.1:
+                risk_flags.append("no_track_record")
+            if v3_result.provenance.raw < 0.3:
+                risk_flags.append("weak_identity")
+            if v3_result.final_score < 60:
+                risk_flags.append("below_certification_threshold")
+
+            categories = [
+                CategoryScore(name="provenance", score=round(v3_result.provenance.raw * 100),
+                              modules_passed=round(v3_result.provenance.raw * 10), modules_total=10,
+                              findings=[f"Provenance: {v3_result.provenance.raw:.0%} (weight 30%)"]),
+                CategoryScore(name="track_record", score=round(v3_result.track_record.raw * 100),
+                              modules_passed=round(v3_result.track_record.raw * 10), modules_total=10,
+                              findings=[f"Track Record: {v3_result.track_record.raw:.0%} (weight 35%)"]),
+                CategoryScore(name="presence", score=round(v3_result.presence.raw * 100),
+                              modules_passed=round(v3_result.presence.raw * 10), modules_total=10,
+                              findings=[f"Presence: {v3_result.presence.raw:.0%} (weight 20%)"]),
+                CategoryScore(name="endorsements", score=round(v3_result.endorsements.raw * 100),
+                              modules_passed=round(v3_result.endorsements.raw * 10), modules_total=10,
+                              findings=[f"Endorsements: {v3_result.endorsements.raw:.0%} (weight 15%)"]),
+            ]
+
+            att_count = v3_result.data_snapshot.get("internal", {}).get("attestations", 0)
+
+            result = TrustCheckResult(
+                agent_id=resolved_id,
+                overall_score=v3_result.final_score,
+                confidence=v3_result.confidence,
+                tier=v3_result.tier,
+                dimensions={
+                    "provenance": DimensionScore(raw=v3_result.provenance.raw, weighted=v3_result.provenance.weighted),
+                    "track_record": DimensionScore(raw=v3_result.track_record.raw, weighted=v3_result.track_record.weighted),
+                    "presence": DimensionScore(raw=v3_result.presence.raw, weighted=v3_result.presence.weighted),
+                    "endorsements": DimensionScore(raw=v3_result.endorsements.raw, weighted=v3_result.endorsements.weighted),
+                },
+                decay_factor=v3_result.decay_factor,
+                risk_flags=risk_flags,
+                attestation_count=att_count,
+                last_checked=now.isoformat() + "Z",
+                categories=categories,
+                certification_id=cert_id,
+                certified=v3_result.final_score >= 60 and v3_result.confidence >= 0.4,
+                raw_hash=raw_hash,
+            )
+
+            try:
+                report = result.model_dump()
+                await _db.create_trust_check(
+                    agent_id=resolved_id,
+                    score=v3_result.final_score / 100.0,
+                    report=report,
+                    requester_ip=request.client.host if request.client else "",
+                    raw_hash=raw_hash,
+                )
+            except Exception:
+                pass
+
+            elapsed_ms = (time.time() - t0) * 1000
+            _request_times.append(elapsed_ms)
+            return result
+        except Exception as e:
+            logger.warning("v3 scoring failed, falling back to legacy: %s", e)
+
+    # Fallback: legacy certification
+    result = _run_certification(resolved_id)
+    if raw_hash:
+        result.raw_hash = raw_hash
+
+    if _db is not None:
+        try:
+            report = result.model_dump()
+            await _db.create_trust_check(
+                agent_id=resolved_id,
+                score=result.overall_score / 100.0,
+                report=report,
+                requester_ip=request.client.host if request.client else "",
+                raw_hash=raw_hash,
+            )
+        except Exception:
+            pass
+
+    elapsed_ms = (time.time() - t0) * 1000
+    _request_times.append(elapsed_ms)
+    return result
+
+
 @router.post("/check", response_model=TrustCheckResult)
 @limiter.limit("60/minute")
 async def check_agent_post(request: Request, body: CheckRequest, _caller: dict = Depends(require_api_key_with_rate_limit)):
-    """
-    POST variant of the trust check — accepts agent_id in the request body.
-
-    Runs the same 36-module trust evaluation as GET /check/{agent_id}.
-    Useful for programmatic integrations where agent_id may contain special characters.
-    """
+    """POST variant of the trust check — accepts agent_id in the request body."""
     sanitize_input(body.agent_id, "agent_id")
-    t0 = time.time()
-
-    resolved_id = body.agent_id
-    if _db is not None:
-        try:
-            agent_row = await _db.get_agent(body.agent_id)
-            if agent_row is None:
-                agent_row = await _db.get_agent_by_pubkey(body.agent_id)
-            if agent_row is None:
-                agent_row = await _db.get_agent_by_name(body.agent_id)
-            if agent_row is not None:
-                resolved_id = agent_row["id"]
-        except Exception:
-            pass
-
-    result = _run_certification(resolved_id)
-
-    # Attach raw_hash for commit-reveal-intent verification
-    if body.raw_hash:
-        result.raw_hash = body.raw_hash
-
-    if _db is not None:
-        try:
-            report = result.model_dump()
-            await _db.create_trust_check(
-                agent_id=resolved_id,
-                score=result.overall_score / 100.0,
-                report=report,
-                requester_ip=request.client.host if request.client else "",
-                raw_hash=body.raw_hash,
-            )
-        except Exception:
-            pass
-
-    elapsed_ms = (time.time() - t0) * 1000
-    _request_times.append(elapsed_ms)
-
-    return result
-
-
-@router.get("/check", response_model=TrustCheckResult)
-@limiter.limit("60/minute")
-async def check_agent_query(request: Request, agent: str = Query(..., min_length=1, max_length=200, description="Agent ID, name, or public key to check"), _caller: dict = Depends(require_api_key_with_rate_limit)):
-    """
-    GET variant with query parameter — GET /check?agent=<name>.
-    Equivalent to GET /check/{agent_id} and POST /check.
-    """
-    sanitize_input(agent, "agent_id")
-    t0 = time.time()
-
-    resolved_id = agent
-    if _db is not None:
-        try:
-            agent_row = await _db.get_agent(agent)
-            if agent_row is None:
-                agent_row = await _db.get_agent_by_pubkey(agent)
-            if agent_row is None:
-                agent_row = await _db.get_agent_by_name(agent)
-            if agent_row is not None:
-                resolved_id = agent_row["id"]
-        except Exception:
-            pass
-
-    result = _run_certification(resolved_id)
-
-    if _db is not None:
-        try:
-            report = result.model_dump()
-            await _db.create_trust_check(
-                agent_id=resolved_id,
-                score=result.overall_score / 100.0,
-                report=report,
-                requester_ip=request.client.host if request.client else "",
-            )
-        except Exception:
-            pass
-
-    elapsed_ms = (time.time() - t0) * 1000
-    _request_times.append(elapsed_ms)
-
-    return result
+    return await _run_v3_check(body.agent_id, request, raw_hash=body.raw_hash)
 
 
 @router.get("/check", response_model=TrustCheckResult)
@@ -775,82 +816,25 @@ async def check_agent_query(
     agent: str = Query(..., min_length=1, max_length=200, description="Agent ID, name, or public key"),
     _caller: dict = Depends(require_api_key_with_rate_limit),
 ):
-    """
-    GET /check?agent=<id> — query-param variant of the trust check.
-    Equivalent to POST /check and GET /check/{agent_id}.
-    """
+    """GET /check?agent=<id> — query-param variant of the trust check."""
     sanitize_input(agent, "agent_id")
-    t0 = time.time()
-    resolved_id = agent
-    if _db is not None:
-        try:
-            agent_row = await _db.get_agent(agent)
-            if agent_row is None:
-                agent_row = await _db.get_agent_by_pubkey(agent)
-            if agent_row is None:
-                agent_row = await _db.get_agent_by_name(agent)
-            if agent_row is not None:
-                resolved_id = agent_row["id"]
-        except Exception:
-            pass
-    result = _run_certification(resolved_id)
-    if _db is not None:
-        try:
-            report = result.model_dump()
-            await _db.create_trust_check(
-                agent_id=resolved_id,
-                score=result.overall_score / 100.0,
-                report=report,
-                requester_ip=request.client.host if request.client else "",
-            )
-        except Exception:
-            pass
-    elapsed_ms = (time.time() - t0) * 1000
-    _request_times.append(elapsed_ms)
-    return result
+    return await _run_v3_check(agent, request)
+
+
+# Duplicate GET /check route removed — single handler above
 
 
 @router.get("/check/{agent_id}", response_model=TrustCheckResult)
 @limiter.limit("60/minute")
 async def check_agent(agent_id: str, request: Request):
     """
-    **Flagship endpoint** — Run a full 36-module trust evaluation.
+    **Flagship endpoint** — Unified v3 trust evaluation.
+
+    Uses the v3 scoring engine (4 dimensions: Provenance 30%, Track Record 35%,
+    Presence 20%, Endorsements 15%) with confidence and tier assignment.
     """
     sanitize_input(agent_id, "agent_id")
-    t0 = time.time()
-
-    # Resolve agent_id — could be id, name, or pubkey
-    resolved_id = agent_id
-    # Try lookup by pubkey or name if db available
-    if _db is not None:
-        try:
-            agent_row = await _db.get_agent(agent_id)
-            if agent_row is None:
-                agent_row = await _db.get_agent_by_pubkey(agent_id)
-            if agent_row is not None:
-                resolved_id = agent_row["id"]
-        except Exception:
-            pass
-
-    result = _run_certification(resolved_id)
-
-    # Persist to DB
-    if _db is not None:
-        try:
-            report = result.model_dump()
-            await _db.create_trust_check(
-                agent_id=resolved_id,
-                score=result.overall_score / 100.0,
-                report=report,
-                requester_ip=request.client.host if request.client else "",
-            )
-        except Exception:
-            pass  # don't fail the request on DB errors
-
-    elapsed_ms = (time.time() - t0) * 1000
-    _request_times.append(elapsed_ms)
-
-    return result
+    return await _run_v3_check(agent_id, request)
 
 
 @router.get("/verify/{agent_id}", response_model=VerifyResponse)
@@ -2008,7 +1992,7 @@ async def get_score_breakdown(agent_id: str):
 
 @router.post("/agents/{agent_id}/recalculate-score", response_model=RecalculateResponse)
 async def recalculate_score(agent_id: str):
-    """Recalculate trust score for an agent using the real scoring engine."""
+    """Recalculate trust score using v3 scoring engine."""
     if _db is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
@@ -2020,64 +2004,16 @@ async def recalculate_score(agent_id: str):
 
     old_score = agent.get("trust_score", 0) or 0
 
-    from scoring.engine import ScoringEngine
-    from scoring.github_collector import fetch_github_data, extract_github_username
-
-    engine = ScoringEngine()
-
-    platforms = agent.get("platforms", [])
-    if isinstance(platforms, str):
-        try:
-            platforms = json.loads(platforms)
-        except Exception:
-            platforms = []
-
-    # Fetch GitHub data
-    github_data = None
-    gh_username = extract_github_username(platforms)
-    if gh_username:
-        github_data = await fetch_github_data(gh_username)
-
-    # Get attestations
-    attestations = await _db.get_attestations_for_subject(agent["id"])
-
-    breakdown = engine.compute(dict(agent), attestations, github_data)
-
-    # Save
-    now = datetime.now(timezone.utc).isoformat()
-    await _db.update_agent(agent["id"], trust_score=breakdown.total_score, last_checked=now)
-
-    # Save report
-    report = {
-        "total_score": breakdown.total_score,
-        "tier": breakdown.tier,
-        "categories": [
-            {
-                "name": c.name,
-                "raw_score": c.raw_score,
-                "max_points": c.max_points,
-                "normalized": c.normalized,
-                "weighted": c.weighted,
-                "details": c.details,
-            }
-            for c in breakdown.categories
-        ],
-        "github_data": breakdown.github_data,
-        "computed_at": breakdown.computed_at,
-    }
-    async with _db._pool.acquire() as conn:
-        await conn.execute(
-            """INSERT INTO trust_checks (agent_id, requested_at, score, report, requester_ip)
-               VALUES ($1, $2, $3, $4, $5)""",
-            agent["id"], now, breakdown.total_score / 100.0, json.dumps(report), "scoring-engine",
-        )
+    from isnad.scoring.engine_v3 import ScoringEngineV3
+    engine = ScoringEngineV3(db=_db)
+    result = await engine.compute_and_store(agent)
 
     return RecalculateResponse(
         agent_id=agent["id"],
         old_score=old_score,
-        new_score=breakdown.total_score,
-        tier=breakdown.tier,
-        computed_at=breakdown.computed_at,
+        new_score=result.final_score,
+        tier=result.tier,
+        computed_at=result.computed_at,
     )
 
 

@@ -62,8 +62,8 @@ def test_track_record_with_ugig():
     ugig = UgigData(completed_gigs=3, avg_rating=4.5)
     github = GitHubData()
     score = score_track_record(ugig, github, [])
-    # 3*5=15 + 4.5*5=22.5 = 37.5 / 100
-    assert score == pytest.approx(37.5 / 100, abs=0.01)
+    # 3*5=15 + 4.5*5=22.5 = 37.5 / 120 (max raw = 120 with CoinPay)
+    assert score == pytest.approx(37.5 / 120, abs=0.01)
 
 
 def test_track_record_with_github():
@@ -83,8 +83,8 @@ def test_track_record_with_attestations():
         {"witness_id": "w3", "task": "code_review"},
     ]
     score = score_track_record(ugig, github, atts)
-    # 3 unique witnesses * 3 = 9 pts + 2 unique tasks * 2 = 4 pts = 13/100
-    assert score == pytest.approx(13 / 100, abs=0.01)
+    # 3 unique witnesses * 3 = 9 pts + 2 unique tasks * 2 = 4 pts = 13/120
+    assert score == pytest.approx(13 / 120, abs=0.01)
 
 
 # ── Presence ──
