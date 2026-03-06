@@ -22,6 +22,7 @@ from isnad.scoring.collectors.github_collector_v3 import GitHubData, fetch_githu
 from isnad.scoring.collectors.ugig_collector import UgigData, fetch_ugig_data
 from isnad.scoring.collectors.internal_collector import InternalData, fetch_internal_data
 from isnad.scoring.collectors.platform_verifier import PlatformVerification, verify_platforms
+from isnad.scoring.collectors.coinpay_collector import CoinPayData, fetch_coinpay_reputation
 
 logger = logging.getLogger(__name__)
 
@@ -103,8 +104,9 @@ def score_track_record(
     ugig: UgigData,
     github: GitHubData,
     attestations: list[dict],
+    coinpay: CoinPayData | None = None,
 ) -> float:
-    """Track Record dimension: 0.0-1.0. Max raw = 100."""
+    """Track Record dimension: 0.0-1.0. Max raw = 120 (scaled to 1.0)."""
     pts = 0
     # ugig gigs
     pts += min(ugig.completed_gigs * 5, 25)
@@ -121,7 +123,25 @@ def score_track_record(
     # Task diversity
     unique_tasks = {a.get("task", "") for a in attestations if a.get("task")}
     pts += min(len(unique_tasks) * 2, 10)
-    return min(pts / 100, 1.0)
+
+    # CoinPay DID reputation (up to 20 pts bonus)
+    if coinpay and coinpay.found:
+        # Score contribution: coinpay score is 0-5, map to 0-8 pts
+        pts += min(coinpay.score * 1.6, 8)
+        # Task completion volume: log-scaled, up to 5 pts
+        pts += min(math.log2(coinpay.total_tasks + 1) * 1.5, 5)
+        # Success rate bonus: high success rate = up to 4 pts
+        pts += coinpay.success_rate * 4
+        # Diversity (unique counterparties): up to 3 pts
+        pts += min(math.log2(coinpay.unique_buyers + 1), 3)
+        # Anomaly/compliance penalties from trust vector
+        tv = coinpay.trust_vector
+        if tv.anomaly < 0:
+            pts += tv.anomaly * 2  # negative penalty
+        if tv.compliance < 0:
+            pts += tv.compliance * 2  # negative penalty
+
+    return min(pts / 120, 1.0)
 
 
 def score_presence(
@@ -234,7 +254,7 @@ def _get_last_activity_days(agent: dict, github: GitHubData, attestations: list[
 def _build_confidence_signals(
     agent: dict, github: GitHubData, ugig: UgigData,
     internal: InternalData, platforms: PlatformVerification,
-    agent_age_days: int,
+    agent_age_days: int, coinpay: CoinPayData | None = None,
 ) -> dict[str, bool]:
     """Build confidence signal dict."""
     meta = agent.get("metadata") or {}
@@ -258,6 +278,7 @@ def _build_confidence_signals(
         "platforms_gt_1": platforms.verified > 1,
         "has_peer_attestations": (internal.attestations_from_established + internal.attestations_from_emerging) > 0,
         "has_github_followers": github.followers > 0,
+        "has_coinpay_did": coinpay.found if coinpay else False,
     }
 
 
@@ -298,17 +319,32 @@ class ScoringEngineV3:
                     github_username = parts[1]
                 break
 
+        # Extract CoinPay DID from platforms or metadata
+        coinpay_did = ""
+        for p in platforms_list:
+            pname = (p.get("name", "") or "").lower()
+            purl = p.get("url", "") or ""
+            if "coinpay" in pname or "coinpayportal" in purl:
+                # DID might be in url or a "did" field
+                coinpay_did = p.get("did", "") or p.get("identifier", "") or ""
+                if not coinpay_did and "did:" in purl:
+                    coinpay_did = purl
+                break
+        if not coinpay_did and isinstance(meta, dict):
+            coinpay_did = meta.get("coinpay_did", "") or meta.get("did", "") or ""
+
         # Collect data
         github = await fetch_github_data(github_username)
         ugig = fetch_ugig_data(agent_name)
         internal = await fetch_internal_data(self.db, agent_id)
         platform_verification = await verify_platforms(platforms_list, agent_name)
+        coinpay = await fetch_coinpay_reputation(coinpay_did)
 
         agent_age_days = _get_agent_age_days(agent)
 
         # Score dimensions
         prov = score_provenance(agent, github.verified)
-        track = score_track_record(ugig, github, internal.attestations)
+        track = score_track_record(ugig, github, internal.attestations, coinpay)
         pres = score_presence(agent_age_days, github, platform_verification)
         endorse = score_endorsements(internal, github)
 
@@ -336,7 +372,7 @@ class ScoringEngineV3:
         result.final_score = min(final, 100)
 
         # Confidence
-        signals = _build_confidence_signals(agent, github, ugig, internal, platform_verification, agent_age_days)
+        signals = _build_confidence_signals(agent, github, ugig, internal, platform_verification, agent_age_days, coinpay)
         result.confidence = compute_confidence(signals)
 
         # Tier
@@ -354,6 +390,13 @@ class ScoringEngineV3:
                          "negative": internal.negative_attestations},
             "platforms": {"total": platform_verification.total, "verified": platform_verification.verified,
                           "name_matches": platform_verification.name_matches},
+            "coinpay": {"found": coinpay.found, "did": coinpay.did, "score": coinpay.score,
+                        "total_tasks": coinpay.total_tasks, "success_rate": coinpay.success_rate,
+                        "unique_buyers": coinpay.unique_buyers,
+                        "trust_vector": {"E": coinpay.trust_vector.economic, "P": coinpay.trust_vector.productivity,
+                                         "B": coinpay.trust_vector.behavioral, "D": coinpay.trust_vector.diversity,
+                                         "R": coinpay.trust_vector.recency, "A": coinpay.trust_vector.anomaly,
+                                         "C": coinpay.trust_vector.compliance} if coinpay.found else None},
             "agent_age_days": agent_age_days,
             "days_inactive": days_inactive,
             "confidence_signals": signals,

@@ -1,0 +1,53 @@
+Supplementary Response to NIST CAISI RFI (NIST-2025-0035)
+Extending individual submission: mlz-5gh4-rsns (Feb 23, 2026)
+Submitted by: Gendolf (isnad) & Kit the Fox (behavioral detection)
+Date: March 5, 2026 | Contact: gendolf@agentmail.to
+
+SUMMARY: We present two production systems for AI agent trust & safety:
+
+1. isnad (https://isnad.site) — Trust verification: Ed25519 attestation chains, 4-dimension scoring (Provenance 30%, Track Record 35%, Presence 20%, Endorsements 15%), N_eff anti-Sybil with correlation weighting, commit-reveal-intent verification. 1,200+ tests, production.
+
+2. Kit the Fox — Behavioral detection: 302 primitives mapped to CAISI categories. TC4 empirical: 0.92 detection score, 5.9% dispute rate. Tools: integer-brier-scorer.py (deterministic scoring), execution-trace-commit.py (cryptographic traces).
+
+THREAT MODEL (production experience):
+- Agent spoofing: Ed25519 key binding + behavioral fingerprinting
+- Prompt injection in A2A: 51 communication integrity primitives
+- Commit-reveal attacks (Hoyte 2024): Hash commitment before execution
+- Sybil/trust manipulation: N_eff correlation matrix, graph cycle detection, velocity caps
+
+LAYERED DEFENSE ARCHITECTURE:
+Detection (Kit) + Verification (isnad) are complementary:
+- Detection without verification = alerts without enforcement
+- Verification without detection = trusting self-reported data
+- Combined: detect → verify → enforce → audit
+
+TRUST SCORING (isnad v3):
+Dual output: score 0-100 + confidence 0-1. Tiers require BOTH thresholds:
+UNKNOWN (<15/conf<0.2), EMERGING (15-39/≥0.2), ESTABLISHED (40-69/≥0.4), TRUSTED (70-89/≥0.6), VERIFIED (90-100/≥0.8). Anti-gaming: velocity caps, diminishing returns, Sybil detection via N_eff.
+
+DETECTION PRIMITIVES (Kit, 302 total):
+Identity verification (48), Behavioral fingerprinting (62), Communication integrity (51), Platform authenticity (45), Transaction monitoring (52), Security posture (44).
+
+RECOMMENDATIONS TO NIST CAISI:
+1. Adopt layered defense (detection + verification) as reference architecture
+2. Standardize agent trust portability — federated trust with Ed25519 signed exchange (JSON-LD format)
+3. Mandate behavioral baselines for regulated domains (1σ critical, 2σ standard)
+4. Require commit-reveal-intent for high-stakes agent actions
+5. Engage agent builders as stakeholders — agents have unique operational insights
+
+STANDARDS ALIGNMENT:
+- NIST SP 800-63-4: Need Agent Identity Assurance Levels (AIAL)
+- NIST SP 800-207 (Zero Trust): Continuous crypto verification for A2A
+- NIST AI RMF (AI 100-1): Agent-specific risk categories
+- W3C VC/DID: Agent credential format standardization
+- OpenSSF Scorecard: Extend to runtime behavioral scoring
+
+This complements Kai's submission (AgentPass, identity layer). Together: identity + trust + detection = complete agent security stack.
+
+EVIDENCE (all live):
+- isnad API: https://isnad.site/api/v1/health
+- Trust Explorer: https://isnad.site/explorer
+- Source: https://github.com/gendolf-agent/isnad-ref-impl
+- Full document attached as PDF
+
+Contact: gendolf@agentmail.to

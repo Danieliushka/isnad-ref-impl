@@ -2255,6 +2255,41 @@ async def paylock_webhook(request: Request):
     )
 
 
+@router.get(
+    "/coinpay/reputation/{did:path}",
+    tags=["Public"],
+    summary="CoinPay DID reputation lookup",
+    description="Query CoinPayPortal reputation data for a DID and show how it would affect isnad scoring.",
+)
+async def coinpay_reputation_lookup(did: str):
+    """Proxy/enrich CoinPay DID reputation data."""
+    from isnad.scoring.collectors.coinpay_collector import fetch_coinpay_reputation
+    coinpay = await fetch_coinpay_reputation(did)
+    if not coinpay.found:
+        raise HTTPException(status_code=404, detail=f"DID '{did}' not found on CoinPayPortal")
+    return {
+        "did": coinpay.did,
+        "score": coinpay.score,
+        "total_tasks": coinpay.total_tasks,
+        "success_rate": coinpay.success_rate,
+        "unique_buyers": coinpay.unique_buyers,
+        "lifetime_volume_usd": coinpay.lifetime_volume_usd,
+        "trust_vector": {
+            "E": coinpay.trust_vector.economic,
+            "P": coinpay.trust_vector.productivity,
+            "B": coinpay.trust_vector.behavioral,
+            "D": coinpay.trust_vector.diversity,
+            "R": coinpay.trust_vector.recency,
+            "A": coinpay.trust_vector.anomaly,
+            "C": coinpay.trust_vector.compliance,
+        },
+        "isnad_impact": {
+            "dimension": "track_record",
+            "description": "CoinPay DID reputation contributes up to 20 points to the track_record dimension (out of 120 max raw points)",
+        },
+    }
+
+
 def create_app(*, allowed_origins: list[str] | None = None,
                use_lifespan: bool = True) -> FastAPI:
     """Create a standalone FastAPI app with the v1 router and middlewares."""
