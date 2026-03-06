@@ -330,8 +330,9 @@ class ScoringEngineV3:
                 if not coinpay_did and "did:" in purl:
                     coinpay_did = purl
                 break
-        if not coinpay_did and isinstance(meta, dict):
-            coinpay_did = meta.get("coinpay_did", "") or meta.get("did", "") or ""
+        metadata = agent.get("metadata") or {}
+        if not coinpay_did and isinstance(metadata, dict):
+            coinpay_did = metadata.get("coinpay_did", "") or metadata.get("did", "") or ""
 
         # Collect data
         github = await fetch_github_data(github_username)
