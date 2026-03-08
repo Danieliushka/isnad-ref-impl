@@ -115,6 +115,41 @@ agent_id: "kit-the-fox"
 
 ---
 
+### L2.5 — Anomaly Detection (CUSUM)
+
+**What:** L2 with continuous statistical monitoring of agent behavior via Cumulative Sum (CUSUM) control charts. Not a commitment level per se, but an assessment layer applied to L2+ commitments over time.
+
+**Mechanism:** After each L2+ commit-reveal cycle, the system computes a deviation score between declared scope and actual outcome:
+- Tool scope violation: used tools not declared → deviation
+- Action count exceeded: more actions than `max_actions` → deviation
+- Duration exceeded: took longer than `timeout_seconds` → deviation
+- Value exceeded: spent more than `max_value_usd` → deviation (highest weight)
+
+These deviation scores feed a two-sided CUSUM chart per agent:
+```
+S+(n) = max(0, S+(n-1) + deviation(n) - k)    # Detects upward shift (scope creep)
+```
+
+When S+ exceeds threshold `h`, an alarm triggers → agent flagged for review.
+
+**Parameters (defaults):**
+- `k = 0.5` — allowance; deviations below this don't accumulate
+- `h = 5.0` — decision interval; alarm threshold
+
+**Why CUSUM over simple thresholds:**
+- Detects *persistent small violations* that individual checks miss
+- A single 10% scope exceedance is fine; ten consecutive 10% exceedances is a pattern
+- Standard in industrial process control (Montgomery 2012), adapted for agent behavioral drift
+
+**Integration with scoring v3:**
+- CUSUM alarms reduce the **Track Record** dimension (35% weight in scoring v3)
+- Clean CUSUM history improves Track Record score
+- Assessment results exposed via `/api/v1/intent/{id}/assess-l25`
+
+**Use case:** Ongoing monitoring of agents with L2+ commitments. Especially valuable for agents with financial scope declarations.
+
+---
+
 ### L3 — Multi-Party Witnessed Commitment
 
 **What:** L2 + commitment is co-signed or acknowledged by at least one independent witness (another agent or isnad node). Enables consensus-grade intent verification.
