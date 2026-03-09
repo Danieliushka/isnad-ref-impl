@@ -37,36 +37,44 @@ export function Badge({ variant, score, children, className = "" }: BadgeProps) 
 /* Trust Level Badge — larger, with gradient + icons + glow animation */
 /* ------------------------------------------------------------------ */
 
-export type TrustLevel = "newcomer" | "building" | "trusted" | "highly-trusted";
+export type TrustLevel = "new" | "emerging" | "established" | "trusted" | "certified";
 
 function getTrustLevel(score: number): TrustLevel {
-  if (score >= 80) return "highly-trusted";
+  if (score >= 80) return "certified";
   if (score >= 60) return "trusted";
-  if (score >= 30) return "building";
-  return "newcomer";
+  if (score >= 40) return "established";
+  if (score >= 20) return "emerging";
+  return "new";
 }
 
 function getTrustLevelLabel(level: TrustLevel): string {
   switch (level) {
-    case "newcomer": return "Newcomer";
-    case "building": return "Building Trust";
+    case "new": return "New";
+    case "emerging": return "Emerging";
+    case "established": return "Established";
     case "trusted": return "Trusted";
-    case "highly-trusted": return "Highly Trusted";
+    case "certified": return "Certified";
   }
 }
 
 const trustLevelStyles: Record<TrustLevel, { gradient: string; text: string; glow: string; icon: string }> = {
-  newcomer: {
+  "new": {
     gradient: "from-zinc-600/30 to-zinc-500/20",
     text: "text-zinc-300",
     glow: "",
     icon: "○",
   },
-  building: {
+  emerging: {
     gradient: "from-amber-500/25 to-yellow-500/15",
     text: "text-amber-300",
     glow: "shadow-[0_0_12px_rgba(245,158,11,0.2)]",
     icon: "◑",
+  },
+  established: {
+    gradient: "from-blue-500/25 to-cyan-500/15",
+    text: "text-blue-300",
+    glow: "shadow-[0_0_14px_rgba(59,130,246,0.2)]",
+    icon: "◉",
   },
   trusted: {
     gradient: "from-emerald-500/25 to-green-500/15",
@@ -74,7 +82,7 @@ const trustLevelStyles: Record<TrustLevel, { gradient: string; text: string; glo
     glow: "shadow-[0_0_16px_rgba(16,185,129,0.25)]",
     icon: "◉",
   },
-  "highly-trusted": {
+  certified: {
     gradient: "from-isnad-teal/30 to-amber-500/15",
     text: "text-isnad-teal",
     glow: "shadow-[0_0_24px_rgba(0,212,170,0.3)]",
@@ -125,7 +133,7 @@ export function TrustBadgeLarge({ score, className = "" }: TrustBadgeLargeProps)
 
       {/* Shield / star icon */}
       <span className="text-xl relative z-10">
-        {level === "highly-trusted" ? "🛡️" : level === "trusted" ? "✦" : level === "building" ? "◐" : "○"}
+        {level === "certified" ? "🛡️" : level === "trusted" ? "✦" : level === "established" ? "◉" : level === "emerging" ? "◐" : "○"}
       </span>
 
       <div className="relative z-10 flex flex-col">

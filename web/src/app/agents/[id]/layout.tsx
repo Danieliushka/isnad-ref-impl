@@ -3,9 +3,10 @@ import type { Metadata } from 'next';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8420/api/v1';
 
 function getTrustTier(score: number): string {
-  if (score >= 80) return 'Trusted';
-  if (score >= 51) return 'Verified';
-  if (score >= 21) return 'Basic';
+  if (score >= 80) return 'Certified';
+  if (score >= 60) return 'Trusted';
+  if (score >= 40) return 'Established';
+  if (score >= 20) return 'Emerging';
   return 'New';
 }
 

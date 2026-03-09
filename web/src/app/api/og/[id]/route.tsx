@@ -11,9 +11,10 @@ function getScoreColor(score: number): string {
 }
 
 function getTrustTier(score: number): string {
-  if (score >= 80) return 'TRUSTED';
-  if (score >= 51) return 'VERIFIED';
-  if (score >= 21) return 'BASIC';
+  if (score >= 80) return 'CERTIFIED';
+  if (score >= 60) return 'TRUSTED';
+  if (score >= 40) return 'ESTABLISHED';
+  if (score >= 20) return 'EMERGING';
   return 'NEW';
 }
 

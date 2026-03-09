@@ -1,0 +1,16 @@
+{
+  "/_not-found/page": "/_not-found",
+  "/favicon.ico/route": "/favicon.ico",
+  "/api/og/[id]/route": "/api/og/[id]",
+  "/badge/[id]/page": "/badge/[id]",
+  "/check/[id]/page": "/check/[id]",
+  "/check/page": "/check",
+  "/docs/page": "/docs",
+  "/explorer/[id]/page": "/explorer/[id]",
+  "/explorer/page": "/explorer",
+  "/page": "/",
+  "/profile/edit/page": "/profile/edit",
+  "/register/page": "/register",
+  "/pricing/page": "/pricing",
+  "/agents/[id]/page": "/agents/[id]"
+}

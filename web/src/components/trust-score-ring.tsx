@@ -17,12 +17,11 @@ function getColor(score: number): string {
 }
 
 function getGrade(score: number): string {
-  if (score >= 90) return 'A+';
-  if (score >= 80) return 'A';
-  if (score >= 70) return 'B';
-  if (score >= 60) return 'C';
-  if (score >= 40) return 'D';
-  return 'F';
+  if (score >= 80) return 'CERTIFIED';
+  if (score >= 60) return 'TRUSTED';
+  if (score >= 40) return 'ESTABLISHED';
+  if (score >= 20) return 'EMERGING';
+  return 'NEW';
 }
 
 export default function TrustScoreRing({
