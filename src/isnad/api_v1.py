@@ -1485,6 +1485,187 @@ async def _auto_grant_badge(agent_id: str, badge_type: str, metadata: Optional[d
 
 
 # ---------------------------------------------------------------------------
+# Evidence Submission Endpoint — DAN-105 (Hash Agent × isnad)
+# ---------------------------------------------------------------------------
+
+class EvidenceSubmitRequest(BaseModel):
+    """Evidence submission from an external agent (e.g. Hash Agent / SkillFence).
+
+    The payload is Ed25519-signed by the submitting agent. The signature covers
+    the canonical JSON of the payload fields (sorted keys, no whitespace).
+    """
+    agent_id: str = Field(..., min_length=1, max_length=200, description="Submitting agent's isnad ID or public key")
+    audit_id: str = Field(..., min_length=1, max_length=200, description="UUID of the audit/scan run")
+    evidence_type: str = Field("security_scan", description="Type: security_scan | code_review | behavioral | attestation")
+    payload: dict = Field(..., description="Evidence data (findings, scores, metadata)")
+    signature: str = Field(..., min_length=1, description="Hex-encoded Ed25519 signature over canonical payload JSON")
+    public_key: str = Field(..., min_length=64, max_length=64, description="Hex-encoded Ed25519 public key (32 bytes)")
+
+
+class EvidenceSubmitResponse(BaseModel):
+    """Confirmation of evidence submission."""
+    evidence_id: str
+    agent_id: str
+    audit_id: str
+    verified: bool
+    score_impact: float = Field(0.0, description="Impact on agent's trust score (0.0 if not yet applied)")
+    message: str = "Evidence received and verified."
+
+
+VALID_EVIDENCE_TYPES = {"security_scan", "code_review", "behavioral", "attestation"}
+
+
+def _verify_ed25519_signature(payload: dict, signature_hex: str, public_key_hex: str) -> tuple[bool, str]:
+    """Verify an Ed25519 signature over canonical JSON payload.
+
+    Returns (is_valid, error_message).
+    """
+    try:
+        from nacl.signing import VerifyKey
+        from nacl.exceptions import BadSignatureError
+
+        # Canonical JSON: sorted keys, no whitespace
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        message_bytes = canonical.encode("utf-8")
+
+        verify_key = VerifyKey(bytes.fromhex(public_key_hex))
+        signature_bytes = bytes.fromhex(signature_hex)
+        verify_key.verify(message_bytes, signature_bytes)
+        return True, ""
+    except BadSignatureError:
+        return False, "Invalid signature: payload does not match"
+    except ValueError as e:
+        return False, f"Invalid key or signature format: {e}"
+    except Exception as e:
+        return False, f"Signature verification failed: {e}"
+
+
+@router.post("/evidence", response_model=EvidenceSubmitResponse, status_code=201)
+@limiter.limit("30/minute")
+async def submit_evidence(request: Request, body: EvidenceSubmitRequest):
+    """Submit cryptographically signed evidence from an external agent.
+
+    Used by agents like Hash Agent (SkillFence) to submit security scan
+    results, code review findings, or other evidence that feeds into
+    the isnad trust scoring engine.
+
+    The signature must be a valid Ed25519 signature over the canonical
+    JSON representation of the payload (sorted keys, compact separators).
+    """
+    sanitize_input(body.agent_id, "agent_id")
+    sanitize_input(body.audit_id, "audit_id")
+
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    if body.evidence_type not in VALID_EVIDENCE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid evidence_type. Must be one of: {sorted(VALID_EVIDENCE_TYPES)}",
+        )
+
+    # Verify Ed25519 signature
+    sig_valid, sig_error = _verify_ed25519_signature(body.payload, body.signature, body.public_key)
+
+    # Resolve agent — by ID or public key
+    agent = await _db.get_agent(body.agent_id)
+    if agent is None:
+        agent = await _db.get_agent_by_pubkey(body.public_key)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not registered. Register first via POST /api/v1/register")
+
+    resolved_agent_id = agent["id"]
+
+    # Check public key matches registered agent
+    stored_pk = agent.get("public_key", "")
+    if stored_pk and stored_pk != body.public_key:
+        raise HTTPException(
+            status_code=403,
+            detail="Public key does not match registered agent's key",
+        )
+
+    # Generate evidence ID
+    evidence_id = hashlib.sha256(
+        f"ev:{resolved_agent_id}:{body.audit_id}:{time.time()}".encode()
+    ).hexdigest()[:24]
+
+    # Check for duplicate audit_id from same agent
+    existing = await _db.get_evidence_for_audit(body.audit_id)
+    for ev in existing:
+        if ev.get("agent_id") == resolved_agent_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Evidence for audit_id '{body.audit_id}' already submitted by this agent",
+            )
+
+    # Calculate score impact based on evidence type and verification
+    score_impact = 0.0
+    if sig_valid:
+        impact_map = {
+            "security_scan": 2.0,
+            "code_review": 1.5,
+            "behavioral": 1.0,
+            "attestation": 0.5,
+        }
+        score_impact = impact_map.get(body.evidence_type, 0.5)
+
+    # Store evidence
+    record = await _db.create_evidence(
+        evidence_id=evidence_id,
+        agent_id=resolved_agent_id,
+        audit_id=body.audit_id,
+        evidence_type=body.evidence_type,
+        payload=body.payload,
+        signature=body.signature,
+        public_key=body.public_key,
+        verified=sig_valid,
+        verification_error=sig_error if not sig_valid else None,
+        score_impact=score_impact if sig_valid else 0.0,
+    )
+
+    # Also create a behavioral signal for the scoring engine
+    if sig_valid:
+        try:
+            await _db.create_behavioral_signal(
+                agent_id=resolved_agent_id,
+                source=body.evidence_type,
+                event_type="evidence_submitted",
+                metadata={
+                    "evidence_id": evidence_id,
+                    "audit_id": body.audit_id,
+                    "score_impact": score_impact,
+                    "payload_summary": {k: type(v).__name__ for k, v in body.payload.items()},
+                },
+            )
+        except Exception:
+            pass  # Non-critical
+
+    message = "Evidence received and verified." if sig_valid else f"Evidence received but signature invalid: {sig_error}"
+
+    return EvidenceSubmitResponse(
+        evidence_id=evidence_id,
+        agent_id=resolved_agent_id,
+        audit_id=body.audit_id,
+        verified=sig_valid,
+        score_impact=score_impact if sig_valid else 0.0,
+        message=message,
+    )
+
+
+@router.get("/evidence/{agent_id}")
+async def get_agent_evidence(
+    agent_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    _caller: dict = Depends(require_api_key_with_rate_limit),
+):
+    """Get evidence submissions for an agent. Requires API key."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+    records = await _db.get_evidence_for_agent(agent_id, limit=limit)
+    return {"agent_id": agent_id, "evidence": records, "total": len(records)}
+
+
+# ---------------------------------------------------------------------------
 # Trust Score Endpoint — DAN-80
 # ---------------------------------------------------------------------------
 
