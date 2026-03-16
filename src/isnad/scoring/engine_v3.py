@@ -109,9 +109,10 @@ def score_track_record(
     """Track Record dimension: 0.0-1.0. Max raw = 120 (scaled to 1.0)."""
     pts = 0
     # ugig gigs
-    pts += min(ugig.completed_gigs * 5, 25)
-    # ugig rating
-    if ugig.completed_gigs > 0 and ugig.avg_rating > 0:
+    completed = max(ugig.completed_gigs, 0)
+    pts += min(completed * 5, 25)
+    # ugig rating (only count if agent has completed at least 1 gig)
+    if completed > 0 and ugig.avg_rating > 0:
         pts += min(ugig.avg_rating * 5, 25)
     # GitHub commits (90d)
     pts += min(github.commits_90d // 10, 10)
@@ -140,6 +141,10 @@ def score_track_record(
             pts += tv.anomaly * 2  # negative penalty
         if tv.compliance < 0:
             pts += tv.compliance * 2  # negative penalty
+
+    # Guard against NaN from bad upstream data
+    if math.isnan(pts) or math.isinf(pts):
+        pts = 0
 
     return min(pts / 120, 1.0)
 
@@ -195,11 +200,11 @@ def assign_tier(score: int, confidence: float) -> str:
     """Assign tier based on score and confidence."""
     if confidence < 0.2:
         return "UNKNOWN"
-    if score >= 80 and confidence >= 0.6:
+    if score > 80 and confidence >= 0.6:
         return "TRUSTED"
-    if score >= 60 and confidence >= 0.4:
+    if score > 60 and confidence >= 0.4:
         return "ESTABLISHED"
-    if score >= 20 and confidence >= 0.2:
+    if score > 20 and confidence >= 0.2:
         return "EMERGING"
     return "UNKNOWN"
 
