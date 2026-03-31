@@ -35,7 +35,7 @@ export async function GET(
   } = { name: id };
 
   try {
-    const API = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8420/api/v1';
+    const API = process.env.NEXT_PUBLIC_API_URL || 'https://isnad.site/api/v1';
     const res = await fetch(`${API}/agents/${id}`, { next: { revalidate: 300 } });
     if (res.ok) agent = await res.json();
   } catch {

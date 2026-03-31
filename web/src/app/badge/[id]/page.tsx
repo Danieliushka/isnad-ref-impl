@@ -1,7 +1,7 @@
 import Link from 'next/link';
 import type { Metadata } from 'next';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8420/api/v1';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://isnad.site/api/v1';
 
 function getScoreColor(score: number) {
   if (score >= 80) return { color: '#00d4aa', bg: 'from-emerald-500/20 to-emerald-500/5', border: 'border-emerald-500/30', text: 'text-emerald-400' };

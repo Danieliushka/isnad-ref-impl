@@ -7,22 +7,27 @@ import TrustChainHero from '@/components/trust-chain-hero';
 
 export default function HeroSection() {
   return (
-    <section className="relative flex flex-col px-6 overflow-hidden">
-      {/* Banner background image */}
+    <section className="relative min-h-screen flex items-center justify-center px-6 overflow-hidden">
+      {/* Banner background image — subtle, on the back plane */}
       <div
-        className="absolute inset-0 bg-cover bg-no-repeat"
-        style={{ backgroundImage: 'url(/gendolf-banner.jpg)', backgroundPosition: 'center 25%' }}
+        className="absolute inset-0 bg-cover bg-center bg-no-repeat opacity-30"
+        style={{ backgroundImage: 'url(/gendolf-banner.jpg)' }}
       />
       {/* Dark overlay for readability */}
-      <div className="absolute inset-0 bg-gradient-to-b from-[#050507]/70 via-[#050507]/50 to-[#050507]" />
+      <div className="absolute inset-0 bg-gradient-to-b from-[#050507]/60 via-[#050507]/50 to-[#050507]" />
 
       {/* Subtle dot grid on top */}
       <div className="absolute inset-0 dot-grid opacity-20" />
 
+      {/* Trust chain visualization */}
+      <div className="absolute inset-0 opacity-[0.08] pointer-events-none">
+        <TrustChainHero />
+      </div>
+
       {/* Bottom fade */}
       <div className="absolute bottom-0 left-0 right-0 h-40 bg-gradient-to-t from-[#050507] to-transparent" />
 
-      <div className="relative z-10 text-center max-w-4xl mx-auto min-h-screen flex flex-col items-center justify-center">
+      <div className="relative z-10 text-center max-w-4xl mx-auto pt-20">
         {/* Protocol badge */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -69,7 +74,7 @@ export default function HeroSection() {
           transition={{ duration: 0.8, delay: 0.45 }}
         >
           <Link href="/check">
-            <Button size="lg">Check an Agent →</Button>
+            <Button size="lg">Check an Agent</Button>
           </Link>
           <Link href="/register">
             <Button variant="secondary" size="lg">
@@ -77,12 +82,6 @@ export default function HeroSection() {
             </Button>
           </Link>
         </motion.div>
-
-      </div>
-
-      {/* Trust chain visualization — below hero content, extends page */}
-      <div className="relative z-10 w-full max-w-5xl mx-auto h-[400px] -mt-20 mb-10">
-        <TrustChainHero />
       </div>
     </section>
   );

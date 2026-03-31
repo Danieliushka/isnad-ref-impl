@@ -6,34 +6,25 @@ import { motion } from 'framer-motion';
 const tabs = [
   {
     label: 'cURL',
-    code: `curl -X POST https://api.isnad.dev/v1/check \\
-  -H "Authorization: Bearer YOUR_API_KEY" \\
-  -H "Content-Type: application/json" \\
-  -d '{"agent_id": "agent:example:gpt-4"}'`,
+    code: `curl https://isnad.site/api/v1/check/gpt-4-assistant`,
   },
   {
     label: 'Python',
-    code: `from isnad import IsnadClient
+    code: `import requests
 
-client = IsnadClient(api_key="YOUR_API_KEY")
-result = client.check("agent:example:gpt-4")
+response = requests.get("https://isnad.site/api/v1/check/gpt-4-assistant")
+result = response.json()
 
-print(f"Score: {result.score.overall}")
-print(f"Certified: {result.agent.is_certified}")`,
+print(f"Score: {result['overall_score']}")
+print(f"Certified: {result['certified']}")`,
   },
   {
     label: 'JavaScript',
-    code: `const res = await fetch("https://api.isnad.dev/v1/check", {
-  method: "POST",
-  headers: {
-    "Authorization": "Bearer YOUR_API_KEY",
-    "Content-Type": "application/json",
-  },
-  body: JSON.stringify({ agent_id: "agent:example:gpt-4" }),
-});
+    code: `const res = await fetch("https://isnad.site/api/v1/check/gpt-4-assistant");
 
-const { score, agent } = await res.json();
-console.log(\`Score: \${score.overall}\`);`,
+const result = await res.json();
+console.log(\`Score: \${result.overall_score}\`);
+console.log(\`Certified: \${result.certified}\`);`,
   },
 ];
 
@@ -54,7 +45,7 @@ export default function ApiTabs() {
             Integrate in Minutes
           </h2>
           <p className="text-zinc-500">
-            REST API, Python SDK, or plain cURL — your choice
+            Start with a public trust check, then expand into profile and badge flows
           </p>
         </motion.div>
 

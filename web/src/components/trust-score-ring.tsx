@@ -30,11 +30,19 @@ export default function TrustScoreRing({
   strokeWidth = 6,
   label = 'Trust Score',
 }: TrustScoreRingProps) {
+  const normalizedScore = Math.max(0, Math.min(100, score));
   const radius = (size - strokeWidth) / 2;
   const circumference = 2 * Math.PI * radius;
-  const progress = (score / 100) * circumference;
-  const color = getColor(score);
-  const grade = getGrade(score);
+  const progress = (normalizedScore / 100) * circumference;
+  const color = getColor(normalizedScore);
+  const grade = getGrade(normalizedScore);
+  const compact = size <= 90;
+  const condensed = size <= 150;
+  const showGrade = !compact;
+  const showLabel = Boolean(label) && size >= 110;
+  const scoreFontSize = compact ? Math.round(size * 0.32) : condensed ? Math.round(size * 0.24) : Math.round(size * 0.2);
+  const gradeFontSize = condensed ? 10 : 14;
+  const labelFontSize = condensed ? 9 : 10;
 
   return (
     <div
@@ -68,33 +76,40 @@ export default function TrustScoreRing({
         />
       </svg>
       {/* Center text */}
-      <div className="absolute inset-0 flex flex-col items-center justify-center">
+      <div className="absolute inset-[16%] flex flex-col items-center justify-center rounded-full border border-white/[0.03] bg-[#07090d]/75">
         <motion.span
-          className="text-4xl font-bold font-mono tabular-nums"
+          className="font-bold font-mono tabular-nums leading-none"
           style={{ color }}
           initial={{ opacity: 0, scale: 0.5 }}
           animate={{ opacity: 1, scale: 1 }}
           transition={{ duration: 0.5, delay: 1 }}
+          aria-label={`Trust score ${normalizedScore}`}
+          title={`Trust score ${normalizedScore}`}
         >
-          {score}
+          <span style={{ fontSize: scoreFontSize }}>{normalizedScore}</span>
         </motion.span>
-        <motion.span
-          className="text-lg font-semibold mt-0.5"
-          style={{ color }}
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.3 }}
-        >
-          {grade}
-        </motion.span>
-        <motion.span
-          className="text-[10px] text-zinc-600 mt-1 tracking-wider uppercase"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ delay: 1.5 }}
-        >
-          {label}
-        </motion.span>
+        {showGrade && (
+          <motion.span
+            className="mt-1 font-semibold tracking-[0.18em] uppercase"
+            style={{ color, fontSize: gradeFontSize }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.2 }}
+          >
+            {grade}
+          </motion.span>
+        )}
+        {showLabel && (
+          <motion.span
+            className="mt-1 uppercase text-zinc-600"
+            style={{ fontSize: labelFontSize, letterSpacing: '0.18em' }}
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.4 }}
+          >
+            {label}
+          </motion.span>
+        )}
       </div>
     </div>
   );

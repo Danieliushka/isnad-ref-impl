@@ -17,8 +17,37 @@ export default function RadarChart({
   color = '#00d4aa',
 }: RadarChartProps) {
   const center = size / 2;
-  const maxRadius = (size - 60) / 2;
+  const maxRadius = (size - 92) / 2;
   const angleStep = (2 * Math.PI) / categories.length;
+
+  function formatLabel(label: string): string[] {
+    if (label.length <= 11) return [label];
+
+    const words = label.split(' ');
+    if (words.length > 1) {
+      const lines: string[] = [];
+      let current = '';
+
+      words.forEach((word) => {
+        const next = current ? `${current} ${word}` : word;
+        if (next.length <= 11) {
+          current = next;
+          return;
+        }
+
+        if (current) lines.push(current);
+        current = word;
+      });
+
+      if (current) lines.push(current);
+      return lines.slice(0, 2).map((line, index) => {
+        if (index === 1 && lines.length > 2) return `${line.slice(0, 9)}…`;
+        return line;
+      });
+    }
+
+    return [`${label.slice(0, 10)}…`];
+  }
 
   // Generate polygon points for a given radius multiplier
   function getPolygonPoints(radiusMultiplier: number): string {
@@ -44,12 +73,13 @@ export default function RadarChart({
   // Label positions
   const labelPositions = categories.map((cat, i) => {
     const angle = angleStep * i - Math.PI / 2;
-    const r = maxRadius + 25;
+    const r = maxRadius + 20;
     return {
       x: center + r * Math.cos(angle),
       y: center + r * Math.sin(angle),
+      angle,
       label: cat.label,
-      value: cat.value,
+      lines: formatLabel(cat.label),
     };
   });
 
@@ -116,13 +146,27 @@ export default function RadarChart({
           key={`label-${i}`}
           x={pos.x}
           y={pos.y}
-          textAnchor="middle"
+          textAnchor={
+            Math.abs(Math.cos(pos.angle)) < 0.24
+              ? 'middle'
+              : Math.cos(pos.angle) > 0
+                ? 'start'
+                : 'end'
+          }
           dominantBaseline="middle"
           fill="#a1a1aa"
-          fontSize="10"
-          fontFamily="Inter, sans-serif"
+          fontSize={size < 280 ? '9' : '10'}
+          fontFamily="monospace"
         >
-          {pos.label}
+          {pos.lines.map((line, index) => (
+            <tspan
+              key={`${pos.label}-${line}-${index}`}
+              x={pos.x}
+              dy={index === 0 ? `${(pos.lines.length - 1) * -5}px` : '11px'}
+            >
+              {line}
+            </tspan>
+          ))}
         </text>
       ))}
     </svg>

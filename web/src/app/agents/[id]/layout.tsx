@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8420/api/v1';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'https://isnad.site/api/v1';
 
 function getTrustTier(score: number): string {
   if (score >= 80) return 'Certified';

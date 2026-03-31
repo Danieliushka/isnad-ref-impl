@@ -447,6 +447,15 @@ class Database:
             )
         return [_record_to_dict(r) for r in rows]
 
+    async def get_latest_score_audit(self, agent_id: str) -> dict | None:
+        """Get the most recent score_audit row for an agent."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM score_audit WHERE agent_id = $1 ORDER BY computed_at DESC LIMIT 1",
+                agent_id,
+            )
+        return _record_to_dict(row) if row else None
+
     # ─── Behavioral Signals ───────────────────────────────────────
 
     async def create_behavioral_signal(
