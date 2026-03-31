@@ -13,6 +13,7 @@ import TrustedBy from '@/components/sections/trusted-by';
 import TrustExplorerLive from '@/components/sections/trust-explorer-live';
 import WhyTrustMatters from '@/components/sections/why-trust-matters';
 import ForDevelopers from '@/components/sections/for-developers';
+import Certification from '@/components/sections/certification';
 
 /* ── How It Works ── */
 const steps = [
@@ -275,6 +276,11 @@ export default function HomePage() {
 
       <div className="glow-divider max-w-4xl mx-auto" />
 
+      {/* Red-Team Certification */}
+      <Certification />
+
+      <div className="glow-divider max-w-4xl mx-auto" />
+
       {/* Trust Badge Showcase */}
       <TrustBadgeShowcase />
 
@@ -359,7 +365,7 @@ export default function HomePage() {
           </div>
           <div className="border-t border-white/[0.04] pt-6 flex flex-col sm:flex-row items-center justify-between gap-3">
             <p className="text-xs text-zinc-700 font-mono">
-              © 2025 isnad. Built with cryptography, not trust.
+              © 2026 isnad. Built with cryptography, not trust.
             </p>
             <p className="text-[10px] text-zinc-800 font-mono">
               API v1.0 · Ed25519 · SHA-256 · AsyncPG

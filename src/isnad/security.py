@@ -98,8 +98,8 @@ async def require_write_auth(
     if not api_key:
         raise HTTPException(status_code=401, detail="Missing X-API-Key header")
 
-    # Check admin key
-    if ADMIN_API_KEY and api_key == ADMIN_API_KEY:
+    # Check admin key (constant-time comparison)
+    if ADMIN_API_KEY and hmac.compare_digest(api_key, ADMIN_API_KEY):
         return "admin"
 
     # Check DB keys if available
@@ -155,20 +155,35 @@ class RequestLoggingMiddleware(BaseHTTPMiddleware):
 
 # ─── CORS configuration ──────────────────────────────────────────
 
+_DEFAULT_TRUSTED_ORIGINS = [
+    "https://isnad.site",
+    "https://www.isnad.site",
+    "http://localhost:3000",
+    "http://localhost:3001",
+]
+
+
 def configure_cors(app, allowed_origins: Optional[list[str]] = None):
-    """Add CORS middleware with configurable origins."""
+    """Add CORS middleware with configurable origins.
+
+    Defaults to a strict allowlist. Set ALLOWED_ORIGINS env var to override.
+    Never uses wildcard '*' with credentials — browsers reject that combo.
+    """
     origins = allowed_origins
     if not origins:
         env_origins = os.environ.get("ALLOWED_ORIGINS", "")
         if env_origins:
             origins = [o.strip() for o in env_origins.split(",") if o.strip()]
         else:
-            origins = ["*"]
+            origins = _DEFAULT_TRUSTED_ORIGINS
+
+    # Wildcard + credentials is invalid per CORS spec — disable credentials for wildcard
+    use_credentials = "*" not in origins
 
     app.add_middleware(
         CORSMiddleware,
         allow_origins=origins,
-        allow_credentials=True,
+        allow_credentials=use_credentials,
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
         allow_headers=["*"],
         expose_headers=["X-Request-ID"],

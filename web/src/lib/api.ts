@@ -74,21 +74,48 @@ export async function listIdentities(): Promise<{
   return res.json();
 }
 
-export interface TrustScoreResponse {
-  agent_id: string;
-  score: number;
-  attestation_count: number;
+/* ── Canonical Trust (single source of truth) ── */
+
+export interface CanonicalDimension {
+  raw: number;
+  weighted: number;
+  weight: number;
 }
 
-export async function getTrustScore(
+export interface CanonicalBadge {
+  badge_type: string;
+  status: string;
+  granted_at: string | null;
+}
+
+export interface CanonicalTrustResponse {
+  agent_id: string;
+  score: number;
+  grade: string;
+  confidence: number;
+  dimensions: Record<string, CanonicalDimension> | null;
+  decay_factor: number;
+  verified_sources: string[];
+  badges: CanonicalBadge[];
+  last_calculated_at: string | null;
+  staleness: "fresh" | "stale" | "unknown";
+  calculation_version: string;
+}
+
+export async function getCanonicalTrust(
   agentId: string
-): Promise<TrustScoreResponse> {
+): Promise<CanonicalTrustResponse> {
   const res = await fetch(
     `${API_BASE}/trust/${encodeURIComponent(agentId)}`
   );
   if (!res.ok) throw new Error(`Trust score failed: ${res.status}`);
   return res.json();
 }
+
+/** @deprecated Use getCanonicalTrust instead */
+export type TrustScoreResponse = CanonicalTrustResponse;
+/** @deprecated Use getCanonicalTrust instead */
+export const getTrustScore = getCanonicalTrust;
 
 export interface IdentityDetail {
   agent_id: string;

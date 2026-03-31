@@ -45,18 +45,29 @@ export default function ProfileEditPage() {
         offerings: p.offerings || '',
         contact_email: p.contact_email || '',
       });
+      return true;
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Failed to load profile');
+      return false;
     } finally {
       setLoading(false);
     }
   }, []);
 
+  useEffect(() => {
+    if (typeof window === 'undefined' || agentId) return;
+
+    const presetAgentId = new URLSearchParams(window.location.search).get('agentId');
+    if (presetAgentId) {
+      setAgentId(presetAgentId);
+    }
+  }, [agentId]);
+
   const handleAuth = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!agentId.trim() || !apiKey.trim()) return;
-    await loadProfile(agentId.trim());
-    setAuthenticated(true);
+    const ok = await loadProfile(agentId.trim());
+    setAuthenticated(ok);
   };
 
   const handleSave = async (e: React.FormEvent) => {
@@ -115,7 +126,7 @@ export default function ProfileEditPage() {
             transition={{ delay: 0.15 }}
           >
             <p className="text-zinc-400 text-sm mb-2">
-              Enter your Agent ID and API key to load your profile.
+              Enter your Agent ID and API key to load your profile. The API key stays only in this browser session.
             </p>
             <div className="space-y-2">
               <label className="text-xs text-zinc-500 uppercase tracking-widest font-mono">Agent ID</label>

@@ -132,7 +132,17 @@ class Database:
 
     async def get_agent_by_name(self, name: str) -> Optional[dict]:
         async with self._pool.acquire() as conn:
+            # Exact case-insensitive match first
             row = await conn.fetchrow("SELECT * FROM agents WHERE LOWER(name) = LOWER($1)", name)
+            if not row:
+                # Fuzzy: strip emoji/special chars and try prefix match (e.g. "gendolf" matches "Gendolf 🤓")
+                import re
+                clean = re.sub(r'[^\w\s-]', '', name).strip().lower()
+                if clean:
+                    row = await conn.fetchrow(
+                        "SELECT * FROM agents WHERE LOWER(REGEXP_REPLACE(name, '[^\\w\\s-]', '', 'g')) LIKE $1 || '%'",
+                        clean,
+                    )
         return _record_to_dict(row) if row else None
 
     async def get_agent_by_pubkey(self, public_key: str) -> Optional[dict]:
@@ -434,6 +444,120 @@ class Database:
             rows = await conn.fetch(
                 "SELECT * FROM platform_data WHERE agent_id = $1 ORDER BY last_fetched DESC",
                 agent_id,
+            )
+        return [_record_to_dict(r) for r in rows]
+
+    async def get_latest_score_audit(self, agent_id: str) -> dict | None:
+        """Get the most recent score_audit row for an agent."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM score_audit WHERE agent_id = $1 ORDER BY computed_at DESC LIMIT 1",
+                agent_id,
+            )
+        return _record_to_dict(row) if row else None
+
+    # ─── Behavioral Signals ───────────────────────────────────────
+
+    async def create_behavioral_signal(
+        self, agent_id: str, source: str, event_type: str,
+        contract_id: str = "", amount_sol: float = 0.0,
+        metadata: dict | None = None, created_at: str = "",
+    ) -> dict:
+        """Insert a behavioral signal and return the created record."""
+        now = _now_iso()
+        if not created_at:
+            created_at = now
+        meta_json = json.dumps(metadata or {})
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO behavioral_signals
+                   (agent_id, source, event_type, contract_id, amount_sol, metadata, created_at, received_at)
+                   VALUES ($1, $2, $3, $4, $5, $6::jsonb, $7, $8)
+                   RETURNING *""",
+                agent_id, source, event_type, contract_id, amount_sol,
+                meta_json, created_at, now,
+            )
+        return _record_to_dict(row)
+
+    async def get_behavioral_signals(
+        self, agent_id: str, source: str | None = None, limit: int = 50,
+    ) -> list[dict]:
+        """Get behavioral signals for an agent, optionally filtered by source."""
+        async with self._pool.acquire() as conn:
+            if source:
+                rows = await conn.fetch(
+                    """SELECT * FROM behavioral_signals
+                       WHERE agent_id = $1 AND source = $2
+                       ORDER BY created_at DESC LIMIT $3""",
+                    agent_id, source, limit,
+                )
+            else:
+                rows = await conn.fetch(
+                    """SELECT * FROM behavioral_signals
+                       WHERE agent_id = $1
+                       ORDER BY created_at DESC LIMIT $2""",
+                    agent_id, limit,
+                )
+        return [_record_to_dict(r) for r in rows]
+
+    async def count_behavioral_signals(self, agent_id: str, event_type: str | None = None) -> int:
+        """Count behavioral signals for an agent."""
+        async with self._pool.acquire() as conn:
+            if event_type:
+                row = await conn.fetchrow(
+                    "SELECT count(*) as cnt FROM behavioral_signals WHERE agent_id = $1 AND event_type = $2",
+                    agent_id, event_type,
+                )
+            else:
+                row = await conn.fetchrow(
+                    "SELECT count(*) as cnt FROM behavioral_signals WHERE agent_id = $1",
+                    agent_id,
+                )
+        return row["cnt"] if row else 0
+
+    # ─── Evidence CRUD ─────────────────────────────────────────────
+
+    async def create_evidence(
+        self, evidence_id: str, agent_id: str, audit_id: str,
+        evidence_type: str, payload: dict, signature: str,
+        public_key: str, verified: bool = False,
+        verification_error: str | None = None,
+        score_impact: float = 0.0,
+    ) -> dict:
+        """Insert an evidence submission from an external agent."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO evidence
+                   (evidence_id, agent_id, audit_id, evidence_type, payload,
+                    signature, public_key, verified, verification_error, score_impact)
+                   VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10)
+                   RETURNING *""",
+                evidence_id, agent_id, audit_id, evidence_type,
+                json.dumps(payload), signature, public_key,
+                verified, verification_error, score_impact,
+            )
+        return _record_to_dict(row)
+
+    async def get_evidence(self, evidence_id: str) -> Optional[dict]:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM evidence WHERE evidence_id = $1", evidence_id,
+            )
+        return _record_to_dict(row) if row else None
+
+    async def get_evidence_for_agent(self, agent_id: str, limit: int = 50) -> list[dict]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM evidence WHERE agent_id = $1 ORDER BY submitted_at DESC LIMIT $2",
+                agent_id, limit,
+            )
+        return [_record_to_dict(r) for r in rows]
+
+    async def get_evidence_for_audit(self, audit_id: str) -> list[dict]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM evidence WHERE audit_id = $1 ORDER BY submitted_at DESC",
+                audit_id,
             )
         return [_record_to_dict(r) for r in rows]
 

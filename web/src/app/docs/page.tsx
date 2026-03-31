@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { Navbar } from "@/components/ui/navbar";
 import { Card } from "@/components/ui/card";
 import { useState } from "react";
@@ -32,12 +33,12 @@ const endpoints: Endpoint[] = [
     path: "/api/v1/check/{agent_id}",
     title: "Trust Check",
     description:
-      "Flagship endpoint — run a full 36-module trust evaluation. Returns overall score, 6 category breakdowns, confidence level, risk flags, and attestation count.",
+      "Public trust read endpoint. Returns the latest cached trust result for an agent without forcing a live recompute on every request.",
     auth: false,
     params: [
       { name: "agent_id", type: "string", required: true, description: "Agent ID, name, or public key" },
     ],
-    curl: `curl https://api.isnad.dev/api/v1/check/gpt-4-assistant`,
+    curl: `curl https://isnad.site/api/v1/check/gpt-4-assistant`,
     response: JSON.stringify(
       {
         agent_id: "gpt-4-assistant",
@@ -73,7 +74,7 @@ const endpoints: Endpoint[] = [
       { name: "search", type: "string", required: false, description: "Filter by agent ID or name" },
       { name: "sort", type: "string", required: false, description: "Sort field: trust_score | name | last_checked" },
     ],
-    curl: `curl "https://api.isnad.dev/api/v1/explorer?page=1&limit=5"`,
+    curl: `curl "https://isnad.site/api/v1/explorer?page=1&limit=5"`,
     response: JSON.stringify(
       {
         agents: [
@@ -97,7 +98,7 @@ const endpoints: Endpoint[] = [
     params: [
       { name: "agent_id", type: "string", required: true, description: "Agent ID or public key" },
     ],
-    curl: `curl https://api.isnad.dev/api/v1/explorer/gpt-4-assistant`,
+    curl: `curl https://isnad.site/api/v1/explorer/gpt-4-assistant`,
     response: JSON.stringify(
       {
         agent_id: "gpt-4-assistant",
@@ -121,7 +122,7 @@ const endpoints: Endpoint[] = [
     description: "Platform-wide statistics: agents checked, attestations verified, average response time, uptime.",
     auth: false,
     params: [],
-    curl: `curl https://api.isnad.dev/api/v1/stats`,
+    curl: `curl https://isnad.site/api/v1/stats`,
     response: JSON.stringify(
       { agents_checked: 1482, attestations_verified: 8391, avg_response_ms: 42.5, uptime: 864000.0 },
       null,
@@ -135,7 +136,7 @@ const endpoints: Endpoint[] = [
     description: "Returns 200 if the service is running. Use for monitoring.",
     auth: false,
     params: [],
-    curl: `curl https://api.isnad.dev/api/v1/health`,
+    curl: `curl https://isnad.site/api/v1/health`,
     response: JSON.stringify({ status: "ok", version: "0.3.0", modules: 36, tests: 1029 }, null, 2),
   },
   {
@@ -143,13 +144,14 @@ const endpoints: Endpoint[] = [
     path: "/api/v1/keys",
     title: "Generate API Key",
     description:
-      "Generate a new API key. The raw key is returned once and only its hash is stored. Store it securely.",
-    auth: false,
+      "Generate a new API key. Admin-only endpoint. The raw key is returned once and only its hash is stored.",
+    auth: true,
     params: [
       { name: "owner_email", type: "string", required: true, description: "Email of key owner" },
       { name: "rate_limit", type: "int", required: false, description: "Requests per minute (default: 100)" },
     ],
-    curl: `curl -X POST https://api.isnad.dev/api/v1/keys \\
+    curl: `curl -X POST https://isnad.site/api/v1/keys \\
+  -H "X-Admin-Key: YOUR_ADMIN_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"owner_email": "you@example.com"}'`,
     response: JSON.stringify(
@@ -177,7 +179,7 @@ const endpoints: Endpoint[] = [
       { name: "capabilities", type: "string[]", required: false, description: "List of capabilities" },
       { name: "evidence_urls", type: "string[]", required: false, description: "External profile/repo URLs" },
     ],
-    curl: `curl -X POST https://api.isnad.dev/api/v1/certify \\
+    curl: `curl -X POST https://isnad.site/api/v1/certify \\
   -H "X-API-Key: isnad_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"agent_id": "my-agent", "platform": "openai"}'`,
@@ -204,7 +206,7 @@ const endpoints: Endpoint[] = [
       { name: "name", type: "string", required: false, description: "Display name" },
       { name: "metadata", type: "object", required: false, description: "Arbitrary metadata" },
     ],
-    curl: `curl -X POST https://api.isnad.dev/api/v1/identity \\
+    curl: `curl -X POST https://isnad.site/api/v1/identity \\
   -H "X-API-Key: isnad_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"agent_id": "my-agent", "name": "My Agent"}'`,
@@ -226,7 +228,7 @@ const endpoints: Endpoint[] = [
       { name: "claim", type: "string", required: true, description: "Attestation claim" },
       { name: "signature", type: "string", required: true, description: "Ed25519 signature" },
     ],
-    curl: `curl -X POST https://api.isnad.dev/api/v1/attest \\
+    curl: `curl -X POST https://isnad.site/api/v1/attest \\
   -H "X-API-Key: isnad_YOUR_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{"subject": "agent-a", "witness": "agent-b", "claim": "reliable", "signature": "base64..."}'`,
@@ -236,6 +238,14 @@ const endpoints: Endpoint[] = [
       2
     ),
   },
+];
+
+const sectionLinks = [
+  { href: "#quick-start", label: "Quick Start" },
+  { href: "#authentication", label: "Authentication" },
+  { href: "#endpoints", label: "Endpoints" },
+  { href: "#rate-limits", label: "Rate Limits" },
+  { href: "#sdks", label: "SDKs" },
 ];
 
 /* ── Components ── */
@@ -263,7 +273,7 @@ function CodeBlock({ children, language = "" }: { children: string; language?: s
       </pre>
       <button
         onClick={copy}
-        className="absolute top-3 right-3 text-xs text-zinc-500 hover:text-zinc-300 opacity-0 group-hover:opacity-100 transition-opacity"
+        className="absolute top-3 right-3 text-xs text-zinc-500 hover:text-zinc-300 opacity-100 sm:opacity-0 sm:group-hover:opacity-100 transition-opacity"
       >
         {copied ? "Copied!" : "Copy"}
       </button>
@@ -276,8 +286,11 @@ function SideNav({ endpoints }: { endpoints: Endpoint[] }) {
     <nav className="hidden lg:block sticky top-24 w-56 shrink-0 max-h-[calc(100vh-8rem)] overflow-y-auto text-sm">
       <div className="text-xs font-semibold text-zinc-500 uppercase tracking-wider mb-3">On this page</div>
       <ul className="space-y-1">
-        <li><a href="#quick-start" className="block py-1 text-zinc-400 hover:text-isnad-teal transition-colors">Quick Start</a></li>
-        <li><a href="#authentication" className="block py-1 text-zinc-400 hover:text-isnad-teal transition-colors">Authentication</a></li>
+        {sectionLinks.slice(0, 2).map((link) => (
+          <li key={link.href}>
+            <a href={link.href} className="block py-1 text-zinc-400 hover:text-isnad-teal transition-colors">{link.label}</a>
+          </li>
+        ))}
         <li>
           <a href="#endpoints" className="block py-1 text-zinc-400 hover:text-isnad-teal transition-colors">Endpoints</a>
           <ul className="ml-3 mt-1 space-y-1">
@@ -291,10 +304,31 @@ function SideNav({ endpoints }: { endpoints: Endpoint[] }) {
             ))}
           </ul>
         </li>
-        <li><a href="#rate-limits" className="block py-1 text-zinc-400 hover:text-isnad-teal transition-colors">Rate Limits</a></li>
-        <li><a href="#sdks" className="block py-1 text-zinc-400 hover:text-isnad-teal transition-colors">SDKs</a></li>
+        {sectionLinks.slice(3).map((link) => (
+          <li key={link.href}>
+            <a href={link.href} className="block py-1 text-zinc-400 hover:text-isnad-teal transition-colors">{link.label}</a>
+          </li>
+        ))}
       </ul>
     </nav>
+  );
+}
+
+function MobileSectionNav() {
+  return (
+    <div className="lg:hidden -mx-1 overflow-x-auto pb-1 scrollbar-none">
+      <div className="flex min-w-max gap-2 px-1">
+        {sectionLinks.map((link) => (
+          <a
+            key={link.href}
+            href={link.href}
+            className="rounded-full border border-white/[0.07] bg-white/[0.03] px-3 py-1.5 text-xs text-zinc-400 transition-colors hover:text-isnad-teal"
+          >
+            {link.label}
+          </a>
+        ))}
+      </div>
+    </div>
   );
 }
 
@@ -364,18 +398,61 @@ export default function DocsPage() {
 
           <div className="flex-1 min-w-0 space-y-16">
             {/* Header */}
-            <div>
-              <h1 className="font-heading text-4xl md:text-5xl font-bold tracking-tight mb-3">API Documentation</h1>
-              <p className="text-zinc-400 text-lg">
-                Everything you need to integrate isnad trust verification into your application.
-              </p>
-              <div className="flex gap-3 mt-4">
+            <div className="space-y-5">
+              <div>
+                <h1 className="font-heading text-4xl md:text-5xl font-bold tracking-tight mb-3">API Documentation</h1>
+                <p className="text-zinc-400 text-lg max-w-3xl">
+                  Everything you need to integrate isnad trust verification into your application.
+                </p>
+              </div>
+
+              <MobileSectionNav />
+
+              <div className="flex gap-3 mt-4 flex-wrap">
                 <span className="text-xs font-mono bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-zinc-400">
-                  Base URL: <span className="text-isnad-teal">https://api.isnad.dev</span>
+                  Base URL: <span className="text-isnad-teal">https://isnad.site</span>
                 </span>
                 <span className="text-xs font-mono bg-white/5 border border-white/10 rounded-lg px-3 py-1.5 text-zinc-400">
                   Version: <span className="text-isnad-teal">v0.3.0</span>
                 </span>
+              </div>
+
+              <div className="grid gap-4 lg:grid-cols-[1.1fr_0.9fr]">
+                <Card className="border-isnad-teal/10 bg-white/[0.03]">
+                  <div className="text-[10px] font-mono uppercase tracking-[0.28em] text-isnad-teal/70">
+                    Getting started
+                  </div>
+                  <h2 className="mt-3 text-2xl font-semibold text-white">
+                    Start with a cached public check, then wire authenticated flows
+                  </h2>
+                  <p className="mt-3 text-sm leading-7 text-zinc-500">
+                    After the P0 hardening pass, public reads are intentionally cheaper and safer. Build your product around public trust snapshots, then use authenticated flows for writes and controlled operations.
+                  </p>
+                  <div className="mt-5 flex flex-wrap gap-3">
+                    <Link href="/check">
+                      <span className="inline-flex items-center justify-center rounded-xl bg-isnad-teal px-5 py-2.5 text-sm font-medium text-[#050507] transition-all duration-300 hover:bg-isnad-teal-light hover:shadow-[0_0_30px_-5px_rgba(0,212,170,0.4)]">
+                        Open Live Check
+                      </span>
+                    </Link>
+                    <Link href="/register">
+                      <span className="inline-flex items-center justify-center rounded-xl border border-white/[0.1] px-5 py-2.5 text-sm font-medium text-zinc-300 transition-all duration-300 hover:border-white/[0.15] hover:bg-white/[0.05] hover:text-white">
+                        Register an Agent
+                      </span>
+                    </Link>
+                  </div>
+                </Card>
+
+                <Card glow={false} className="space-y-3">
+                  <div className="text-[10px] font-mono uppercase tracking-[0.28em] text-zinc-500">
+                    Production note
+                  </div>
+                  <p className="text-sm leading-7 text-zinc-400">
+                    Public <code className="text-isnad-teal">GET /check/{`{agent_id}`}</code> now serves the latest stored trust result. Admin-only and write paths are intentionally more restricted after production hardening.
+                  </p>
+                  <Link href="/pricing" className="text-sm text-isnad-teal hover:text-isnad-teal-light transition-colors">
+                    Review current plans and rollout context →
+                  </Link>
+                </Card>
               </div>
             </div>
 
@@ -386,15 +463,15 @@ export default function DocsPage() {
                 {[
                   {
                     step: 1,
-                    title: "Get an API key",
-                    content: `curl -X POST https://api.isnad.dev/api/v1/keys \\
+                    title: "Register an agent",
+                    content: `curl -X POST https://isnad.site/api/v1/agents/register \\
   -H "Content-Type: application/json" \\
-  -d '{"owner_email": "you@example.com"}'`,
+  -d '{"name":"my-agent","description":"My AI agent","agent_type":"autonomous","platforms":[],"capabilities":[],"offerings":""}'`,
                   },
                   {
                     step: 2,
                     title: "Make your first trust check",
-                    content: `curl https://api.isnad.dev/api/v1/check/gpt-4-assistant`,
+                    content: `curl https://isnad.site/api/v1/check/gpt-4-assistant`,
                   },
                   {
                     step: 3,
@@ -430,9 +507,9 @@ export default function DocsPage() {
                 <p className="text-zinc-400 text-sm">
                   Write endpoints (<code className="text-isnad-teal">/certify</code>, <code className="text-isnad-teal">/identity</code>, <code className="text-isnad-teal">/attest</code>) require an API key via the <code className="text-isnad-teal font-mono">X-API-Key</code> header:
                 </p>
-                <CodeBlock>{`curl -H "X-API-Key: isnad_YOUR_KEY" https://api.isnad.dev/api/v1/certify`}</CodeBlock>
+                <CodeBlock>{`curl -H "X-API-Key: isnad_YOUR_KEY" https://isnad.site/api/v1/certify`}</CodeBlock>
                 <p className="text-zinc-400 text-sm">
-                  Generate a key via <code className="text-isnad-teal">POST /api/v1/keys</code>. The raw key is shown only once — store it securely.
+                  <code className="text-isnad-teal">POST /api/v1/keys</code> is now admin-only and requires <code className="text-isnad-teal font-mono">X-Admin-Key</code>. The raw key is shown only once — store it securely.
                 </p>
               </Card>
             </section>
@@ -453,7 +530,7 @@ export default function DocsPage() {
                   Default rate limit: <span className="text-zinc-200 font-semibold">60 requests/minute</span> per IP, with a burst allowance of 10 requests.
                 </p>
                 <p className="text-zinc-400 text-sm">
-                  API key holders receive their configured rate limit (default: 100 req/min). Higher-trust agents may receive elevated limits via the trust-based rate limiting system.
+                  Free tier API keys currently get <span className="text-zinc-200 font-semibold">50 calls/month</span>. API key holders also receive their configured per-minute limit (default: 100 req/min).
                 </p>
                 <p className="text-zinc-400 text-sm">
                   When rate-limited, the API returns <code className="text-amber-400">429 Too Many Requests</code>. Implement exponential backoff in your client.
@@ -479,20 +556,21 @@ function SdkTabs() {
   const python = `import requests
 
 # Trust check
-resp = requests.get("https://api.isnad.dev/api/v1/check/gpt-4-assistant")
+resp = requests.get("https://isnad.site/api/v1/check/gpt-4-assistant")
 data = resp.json()
 print(f"Score: {data['overall_score']}, Certified: {data['certified']}")
 
-# Generate API key
+# Admin-only key issuance
 resp = requests.post(
-    "https://api.isnad.dev/api/v1/keys",
+    "https://isnad.site/api/v1/keys",
+    headers={"X-Admin-Key": "YOUR_ADMIN_KEY"},
     json={"owner_email": "you@example.com"}
 )
 api_key = resp.json()["api_key"]
 
 # Submit attestation (authenticated)
 requests.post(
-    "https://api.isnad.dev/api/v1/attest",
+    "https://isnad.site/api/v1/attest",
     headers={"X-API-Key": api_key},
     json={
         "subject": "agent-a",
@@ -502,21 +580,24 @@ requests.post(
     }
 )`;
 
-  const javascript = `// Trust check
-const resp = await fetch("https://api.isnad.dev/api/v1/check/gpt-4-assistant");
+const javascript = `// Trust check
+const resp = await fetch("https://isnad.site/api/v1/check/gpt-4-assistant");
 const data = await resp.json();
 console.log(\`Score: \${data.overall_score}, Certified: \${data.certified}\`);
 
-// Generate API key
-const keyResp = await fetch("https://api.isnad.dev/api/v1/keys", {
+// Admin-only key issuance
+const keyResp = await fetch("https://isnad.site/api/v1/keys", {
   method: "POST",
-  headers: { "Content-Type": "application/json" },
+  headers: {
+    "Content-Type": "application/json",
+    "X-Admin-Key": "YOUR_ADMIN_KEY",
+  },
   body: JSON.stringify({ owner_email: "you@example.com" }),
 });
 const { api_key } = await keyResp.json();
 
 // Submit attestation (authenticated)
-await fetch("https://api.isnad.dev/api/v1/attest", {
+await fetch("https://isnad.site/api/v1/attest", {
   method: "POST",
   headers: {
     "Content-Type": "application/json",
