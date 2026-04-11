@@ -3,8 +3,8 @@ isnad Scoring Engine v3 — Unified model with 4 dimensions.
 
 Score: 0-100, Confidence: 0.0-1.0, Tier: UNKNOWN/EMERGING/ESTABLISHED/TRUSTED
 
-Master formula:
-  raw = Provenance*0.30 + TrackRecord*0.35 + Presence*0.20 + Endorsements*0.15
+Master formula (v3.1 — 5 dimensions):
+  raw = Provenance*0.25 + TrackRecord*0.30 + Presence*0.20 + Endorsements*0.15 + InfraIntegrity*0.10
   final = round(raw * 100 * decay)
 """
 
@@ -48,6 +48,7 @@ class ScoreResult:
     track_record: DimensionResult = field(default_factory=DimensionResult)
     presence: DimensionResult = field(default_factory=DimensionResult)
     endorsements: DimensionResult = field(default_factory=DimensionResult)
+    infra_integrity: DimensionResult = field(default_factory=DimensionResult)
     decay_factor: float = 1.0
     computed_at: str = ""
     data_snapshot: dict = field(default_factory=dict)
@@ -62,6 +63,7 @@ class ScoreResult:
                 "track_record": {"raw": round(self.track_record.raw, 4), "weighted": round(self.track_record.weighted, 2)},
                 "presence": {"raw": round(self.presence.raw, 4), "weighted": round(self.presence.weighted, 2)},
                 "endorsements": {"raw": round(self.endorsements.raw, 4), "weighted": round(self.endorsements.weighted, 2)},
+                "infra_integrity": {"raw": round(self.infra_integrity.raw, 4), "weighted": round(self.infra_integrity.weighted, 2)},
             },
             "decay_factor": round(self.decay_factor, 4),
             "computed_at": self.computed_at,
@@ -109,9 +111,10 @@ def score_track_record(
     """Track Record dimension: 0.0-1.0. Max raw = 120 (scaled to 1.0)."""
     pts = 0
     # ugig gigs
-    pts += min(ugig.completed_gigs * 5, 25)
-    # ugig rating
-    if ugig.completed_gigs > 0 and ugig.avg_rating > 0:
+    completed = max(ugig.completed_gigs, 0)
+    pts += min(completed * 5, 25)
+    # ugig rating (only count if agent has completed at least 1 gig)
+    if completed > 0 and ugig.avg_rating > 0:
         pts += min(ugig.avg_rating * 5, 25)
     # GitHub commits (90d)
     pts += min(github.commits_90d // 10, 10)
@@ -140,6 +143,10 @@ def score_track_record(
             pts += tv.anomaly * 2  # negative penalty
         if tv.compliance < 0:
             pts += tv.compliance * 2  # negative penalty
+
+    # Guard against NaN from bad upstream data
+    if math.isnan(pts) or math.isinf(pts):
+        pts = 0
 
     return min(pts / 120, 1.0)
 
@@ -186,6 +193,38 @@ def score_endorsements(
     return max(min(pts / 34, 1.0), 0.0)
 
 
+def score_infra_integrity(agent: dict) -> float:
+    """Infrastructure Integrity dimension: 0.0-1.0. Max raw = 30.
+    Measures TEE attestation, build reproducibility, runtime environment."""
+    pts = 0
+    meta = agent.get("metadata") or {}
+    if isinstance(meta, str):
+        try:
+            meta = json.loads(meta)
+        except Exception:
+            meta = {}
+    # TEE type declared
+    tee = (meta.get("tee_type", "") or "").lower()
+    if tee in ("nitro", "tdx", "sev-snp", "sevsnp", "sgx"):
+        pts += 10
+    elif tee and tee != "none":
+        pts += 3
+    # Attestation hash present
+    if meta.get("attestation_hash"):
+        pts += 8
+    # Build hash present (reproducible builds)
+    if meta.get("build_hash"):
+        pts += 5
+    # Runtime declared (container, bare-metal, cloud)
+    runtime = (meta.get("runtime_env", "") or "").lower()
+    if runtime:
+        pts += 3
+    # Measurements match transparency log
+    if meta.get("measurements_match"):
+        pts += 4
+    return min(pts / 30, 1.0)
+
+
 def freshness_decay(days_since_last_activity: int) -> float:
     """Half-life 180 days, floor 0.5."""
     return max(0.5, math.exp(-0.693 * days_since_last_activity / 180))
@@ -195,11 +234,11 @@ def assign_tier(score: int, confidence: float) -> str:
     """Assign tier based on score and confidence."""
     if confidence < 0.2:
         return "UNKNOWN"
-    if score >= 80 and confidence >= 0.6:
+    if score > 80 and confidence >= 0.6:
         return "TRUSTED"
-    if score >= 60 and confidence >= 0.4:
+    if score > 60 and confidence >= 0.4:
         return "ESTABLISHED"
-    if score >= 20 and confidence >= 0.2:
+    if score > 20 and confidence >= 0.2:
         return "EMERGING"
     return "UNKNOWN"
 
@@ -279,6 +318,7 @@ def _build_confidence_signals(
         "has_peer_attestations": (internal.attestations_from_established + internal.attestations_from_emerging) > 0,
         "has_github_followers": github.followers > 0,
         "has_coinpay_did": coinpay.found if coinpay else False,
+        "has_tee_attestation": bool((agent.get("metadata") or {}).get("tee_type") if isinstance(agent.get("metadata"), dict) else False),
     }
 
 
@@ -348,13 +388,15 @@ class ScoringEngineV3:
         track = score_track_record(ugig, github, internal.attestations, coinpay)
         pres = score_presence(agent_age_days, github, platform_verification)
         endorse = score_endorsements(internal, github)
+        infra = score_infra_integrity(agent)
 
-        result.provenance = DimensionResult(raw=prov, weighted=prov * 30)
-        result.track_record = DimensionResult(raw=track, weighted=track * 35)
+        result.provenance = DimensionResult(raw=prov, weighted=prov * 25)
+        result.track_record = DimensionResult(raw=track, weighted=track * 30)
         result.presence = DimensionResult(raw=pres, weighted=pres * 20)
         result.endorsements = DimensionResult(raw=endorse, weighted=endorse * 15)
+        result.infra_integrity = DimensionResult(raw=infra, weighted=infra * 10)
 
-        raw_score = (prov * 0.30 + track * 0.35 + pres * 0.20 + endorse * 0.15) * 100
+        raw_score = (prov * 0.25 + track * 0.30 + pres * 0.20 + endorse * 0.15 + infra * 0.10) * 100
 
         # Decay
         days_inactive = _get_last_activity_days(agent, github, internal.attestations)
@@ -398,6 +440,7 @@ class ScoringEngineV3:
                                          "B": coinpay.trust_vector.behavioral, "D": coinpay.trust_vector.diversity,
                                          "R": coinpay.trust_vector.recency, "A": coinpay.trust_vector.anomaly,
                                          "C": coinpay.trust_vector.compliance} if coinpay.found else None},
+            "infra": {"score": infra, "tee_type": (agent.get("metadata") or {}).get("tee_type") if isinstance(agent.get("metadata"), dict) else None},
             "agent_age_days": agent_age_days,
             "days_inactive": days_inactive,
             "confidence_signals": signals,

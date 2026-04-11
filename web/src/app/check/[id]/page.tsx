@@ -47,13 +47,11 @@ function barGlow(value: number): string {
 }
 
 function getGrade(score: number): string {
-  if (score >= 90) return 'A+';
-  if (score >= 80) return 'A';
-  if (score >= 70) return 'B+';
-  if (score >= 60) return 'B';
-  if (score >= 50) return 'C';
-  if (score >= 35) return 'D';
-  return 'F';
+  if (score >= 80) return 'CERTIFIED';
+  if (score >= 60) return 'TRUSTED';
+  if (score >= 40) return 'ESTABLISHED';
+  if (score >= 20) return 'EMERGING';
+  return 'NEW';
 }
 
 function getConfidenceLevel(c: number): 'high' | 'medium' | 'low' {
@@ -97,16 +95,35 @@ export default function TrustReportPage() {
   }
 
   if (error || !data) {
+    const is404 = error?.includes('404');
     return (
       <>
         <Navbar />
         <main className="min-h-screen pt-24 px-6 max-w-5xl mx-auto pb-20 flex items-center justify-center">
           <Card className="text-center p-10">
-            <h2 className="font-heading text-2xl font-bold text-red-400 mb-2">Check Failed</h2>
-            <p className="text-zinc-500">{error || 'Unknown error'}</p>
-            <Button variant="secondary" className="mt-4" onClick={() => window.location.reload()}>
-              Retry
-            </Button>
+            <h2 className="font-heading text-2xl font-bold text-zinc-300 mb-2">
+              {is404 ? 'Agent Not Found' : 'Check Failed'}
+            </h2>
+            <p className="text-zinc-500 mb-2">
+              {is404
+                ? `"${id}" is not a registered agent on isnad.`
+                : (error || 'Unknown error')}
+            </p>
+            {is404 && (
+              <p className="text-zinc-600 text-sm mb-4">
+                Only registered agents have trust profiles. Want to register?
+              </p>
+            )}
+            <div className="flex gap-3 justify-center">
+              {is404 ? (
+                <>
+                  <a href="/register"><Button size="lg">Register Agent</Button></a>
+                  <a href="/explorer"><Button variant="secondary" size="lg">Browse Agents</Button></a>
+                </>
+              ) : (
+                <Button variant="secondary" onClick={() => window.location.reload()}>Retry</Button>
+              )}
+            </div>
           </Card>
         </main>
       </>
@@ -123,7 +140,7 @@ export default function TrustReportPage() {
     value: sig.score,
   }));
 
-  const embedCode = `<img src="https://isnad.network/badge/${id}" alt="${id} trust badge" />`;
+  const embedCode = `<img src="https://isnad.site/api/v1/badge/${id}" alt="${id} trust badge" />`;
 
   function copyEmbed() {
     navigator.clipboard.writeText(embedCode).then(() => {

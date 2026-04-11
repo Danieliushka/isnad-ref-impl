@@ -7,10 +7,11 @@ import { useState } from "react";
 
 const links = [
   { href: "/check", label: "Check" },
-  { href: "/explorer", label: "Explorer" },
+  { href: "/explorer", label: "Agents" },
+  { href: "/docs", label: "Docs" },
   { href: "/pricing", label: "Pricing" },
   { href: "/register", label: "Register" },
-  { href: "/docs", label: "Docs" },
+  { href: "/profile/edit", label: "Profile" },
   { href: "https://github.com/Danieliushka/isnad-ref-impl", label: "GitHub", external: true },
 ];
 
@@ -33,6 +34,12 @@ function NavLink({ link, active }: { link: typeof links[number]; active?: boolea
   );
 }
 
+function isActivePath(pathname: string, href: string): boolean {
+  if (href === "/") return pathname === "/";
+  if (href === "/profile/edit") return pathname.startsWith("/profile");
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
+
 export function Navbar() {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -44,17 +51,22 @@ export function Navbar() {
       transition={{ duration: 0.5, delay: 0.1 }}
       className="fixed top-4 left-4 right-4 z-50"
     >
-      <div className="max-w-5xl mx-auto bg-white/[0.03] backdrop-blur-2xl border border-white/[0.06] rounded-2xl">
+      <div className="max-w-6xl mx-auto bg-white/[0.03] backdrop-blur-2xl border border-white/[0.06] rounded-2xl shadow-[0_18px_60px_-36px_rgba(0,0,0,0.65)]">
         <div className="px-6 h-14 flex items-center justify-between">
-          <Link href="/" className="flex items-center gap-1.5">
-            <span className="text-lg font-bold tracking-tight text-white">isnad</span>
-            <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
+          <Link href="/" className="flex items-center gap-3">
+            <div className="flex items-center gap-1.5">
+              <span className="text-lg font-bold tracking-tight text-white">isnad</span>
+              <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
+            </div>
+            <span className="hidden md:inline text-[10px] font-mono tracking-[0.26em] uppercase text-zinc-500">
+              trust infrastructure
+            </span>
           </Link>
 
           {/* Desktop links */}
           <div className="hidden sm:flex items-center gap-1">
             {links.map((link) => (
-              <NavLink key={link.href} link={link} active={!link.external && pathname === link.href} />
+              <NavLink key={link.href} link={link} active={!link.external && isActivePath(pathname, link.href)} />
             ))}
           </div>
 
@@ -93,7 +105,7 @@ export function Navbar() {
               <div className="px-4 py-3 flex flex-col gap-1">
                 {links.map((link) => (
                   <div key={link.href} onClick={() => setOpen(false)}>
-                    <NavLink link={link} active={!link.external && pathname === link.href} />
+                    <NavLink link={link} active={!link.external && isActivePath(pathname, link.href)} />
                   </div>
                 ))}
               </div>

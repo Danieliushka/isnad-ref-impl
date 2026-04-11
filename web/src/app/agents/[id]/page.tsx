@@ -12,6 +12,22 @@ import TrustScoreRing from '@/components/trust-score-ring';
 import RadarChart from '@/components/radar-chart';
 import { getAgentProfile, getTrustScoreV2, getAgentBadges, getAgentDetail, getTrustReport, type AgentProfile, type TrustScoreV2Response, type BadgeRecord, type AgentDetailResponse, type TrustReport } from '@/lib/api';
 
+const API_BASE = process.env.NEXT_PUBLIC_API_URL || '/api/v1';
+
+interface V3Dimension { raw: number; weighted: number; }
+interface V3CheckResult {
+  overall_score: number;
+  confidence: number;
+  tier: string;
+  dimensions: {
+    provenance: V3Dimension;
+    track_record: V3Dimension;
+    presence: V3Dimension;
+    endorsements: V3Dimension;
+    infra_integrity?: V3Dimension;
+  };
+}
+
 const typeLabels: Record<string, { label: string; color: string }> = {
   autonomous: { label: 'Autonomous', color: 'text-purple-400 bg-purple-500/15 border-purple-500/20' },
   'tool-calling': { label: 'Tool-Calling', color: 'text-blue-400 bg-blue-500/15 border-blue-500/20' },
@@ -59,10 +75,11 @@ function getScoreColor(score: number): string {
 }
 
 function getTrustLevel(score: number): { label: string; color: string } {
-  if (score >= 80) return { label: 'Highly Trusted', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
-  if (score >= 51) return { label: 'Trusted', color: 'text-isnad-teal bg-isnad-teal/10 border-isnad-teal/20' };
-  if (score >= 21) return { label: 'Building Trust', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
-  return { label: 'Newcomer', color: 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20' };
+  if (score >= 80) return { label: 'Certified', color: 'text-emerald-400 bg-emerald-500/10 border-emerald-500/20' };
+  if (score >= 60) return { label: 'Trusted', color: 'text-isnad-teal bg-isnad-teal/10 border-isnad-teal/20' };
+  if (score >= 40) return { label: 'Established', color: 'text-blue-400 bg-blue-500/10 border-blue-500/20' };
+  if (score >= 20) return { label: 'Emerging', color: 'text-amber-400 bg-amber-500/10 border-amber-500/20' };
+  return { label: 'New', color: 'text-zinc-400 bg-zinc-500/10 border-zinc-500/20' };
 }
 
 function daysSince(dateStr: string): number {
@@ -116,6 +133,7 @@ export default function AgentProfilePage() {
 
   const [agent, setAgent] = useState<AgentProfile | null>(null);
   const [trustV2, setTrustV2] = useState<TrustScoreV2Response | null>(null);
+  const [v3Check, setV3Check] = useState<V3CheckResult | null>(null);
   const [badges, setBadges] = useState<BadgeRecord[]>([]);
   const [detail, setDetail] = useState<AgentDetailResponse | null>(null);
   const [trustReport, setTrustReport] = useState<TrustReport | null>(null);
@@ -141,6 +159,12 @@ export default function AgentProfilePage() {
         if (profile.status === 'fulfilled') setAgent(profile.value);
         else throw new Error('Agent not found');
         if (v2.status === 'fulfilled') setTrustV2(v2.value);
+        // Also fetch v3 check for proper dimensions
+        try {
+          const v3res = await fetch(`${API_BASE}/trust/${encodeURIComponent(agentId)}`);
+          if (v3res.ok) { const v3data = await v3res.json(); if (!cancelled) setV3Check(v3data); }
+        } catch {}
+
         if (badgesResult.status === 'fulfilled') setBadges(badgesResult.value);
         if (detailResult.status === 'fulfilled') setDetail(detailResult.value);
         if (reportResult.status === 'fulfilled') setTrustReport(reportResult.value);
@@ -201,9 +225,16 @@ export default function AgentProfilePage() {
   const score = Math.round(agent.trust_score);
   const typeInfo = typeLabels[agent.agent_type] || typeLabels['autonomous'];
   const signals = trustV2?.signals;
+  const dims = v3Check?.dimensions;
 
-  // Radar chart categories from v2 signals
-  const radarCategories = signals ? [
+  // Radar chart categories from v3 dimensions (preferred) or v2 signals (fallback)
+  const radarCategories = dims ? [
+    { label: 'Provenance', value: dims.provenance.raw },
+    { label: 'Track Record', value: dims.track_record.raw },
+    { label: 'Presence', value: dims.presence.raw },
+    { label: 'Endorsements', value: dims.endorsements.raw },
+    ...(dims.infra_integrity ? [{ label: 'Infrastructure', value: dims.infra_integrity.raw }] : []),
+  ] : signals ? [
     { label: 'Reputation', value: signals.platform_reputation.score },
     { label: 'Delivery', value: signals.delivery_track_record.score },
     { label: 'Identity', value: signals.identity_verification.score },
@@ -318,7 +349,7 @@ export default function AgentProfilePage() {
               <div className="flex flex-wrap items-center justify-center md:justify-start gap-x-5 gap-y-1.5 text-[11px] text-zinc-600 font-mono pt-2 border-t border-white/[0.04]">
                 <span title={agent.agent_id}>ID: {agent.agent_id.slice(0, 12)}…</span>
                 <span>Registered: {new Date(agent.created_at).toLocaleDateString()}</span>
-                {trustV2 && <span>Confidence: {trustV2.total_confidence.toFixed(2)}</span>}
+                {v3Check ? <span>Confidence: {v3Check.confidence.toFixed(2)}</span> : trustV2 && <span>Confidence: {trustV2.total_confidence.toFixed(2)}</span>}
                 <a
                   href={`/badge/${encodeURIComponent(agent.name || agent.agent_id)}`}
                   className="ml-auto inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-[11px] font-medium text-isnad-teal bg-isnad-teal/10 border border-isnad-teal/20 hover:bg-isnad-teal/20 transition-colors"
@@ -394,7 +425,15 @@ export default function AgentProfilePage() {
                 <span className="w-1.5 h-1.5 rounded-full bg-isnad-teal" />
                 Trust Breakdown
               </h2>
-              {signals ? (
+              {dims ? (
+                <div className="space-y-5">
+                  <ScoreBar label="Provenance" score={Math.round(dims.provenance.raw * 100)} delay={0.3} />
+                  <ScoreBar label="Track Record" score={Math.round(dims.track_record.raw * 100)} delay={0.4} />
+                  <ScoreBar label="Presence" score={Math.round(dims.presence.raw * 100)} delay={0.5} />
+                  <ScoreBar label="Endorsements" score={Math.round(dims.endorsements.raw * 100)} delay={0.6} />
+                  {dims.infra_integrity && <ScoreBar label="Infrastructure" score={Math.round(dims.infra_integrity.raw * 100)} delay={0.7} />}
+                </div>
+              ) : signals ? (
                 <div className="space-y-5">
                   <ScoreBar label="Platform Reputation" score={Math.round(signals.platform_reputation.score * 100)} delay={0.3} />
                   <ScoreBar label="Delivery Track Record" score={Math.round(signals.delivery_track_record.score * 100)} delay={0.4} />

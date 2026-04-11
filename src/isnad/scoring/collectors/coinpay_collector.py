@@ -49,6 +49,57 @@ class CoinPayData:
     error: Optional[str] = None
 
 
+def _validate_did(did: str) -> bool:
+    """Validate DID format: must be 'did:<method>:<id>' with known methods."""
+    if not did or not isinstance(did, str):
+        return False
+    parts = did.split(":")
+    if len(parts) < 3:
+        return False
+    if parts[0] != "did":
+        return False
+    method = parts[1]
+    identifier = ":".join(parts[2:])  # rejoin in case id contains colons
+    if not method or not identifier:
+        return False
+    # Only accept known DID methods
+    known_methods = {"coinpay", "key", "web", "pkh", "ethr", "ion"}
+    if method not in known_methods:
+        logger.warning("Unknown DID method '%s' in DID: %s", method, did)
+        return False
+    return True
+
+
+def _validate_proof_chain(data: dict, did: str) -> bool:
+    """Validate the proof chain in the CoinPay reputation response.
+    
+    The response must include a 'proof' object with:
+    - 'type': a recognized proof type
+    - 'verificationMethod': must reference the same DID
+    - 'proofValue': non-empty signature
+    """
+    proof = data.get("proof")
+    if not proof or not isinstance(proof, dict):
+        logger.warning("CoinPay response missing proof chain for DID: %s", did)
+        return False
+    proof_type = proof.get("type", "")
+    if not proof_type:
+        logger.warning("CoinPay proof missing type for DID: %s", did)
+        return False
+    verification_method = proof.get("verificationMethod", "")
+    if not verification_method or not verification_method.startswith(did):
+        logger.warning(
+            "CoinPay proof verificationMethod '%s' does not match DID '%s'",
+            verification_method, did,
+        )
+        return False
+    proof_value = proof.get("proofValue", "")
+    if not proof_value or len(proof_value) < 10:
+        logger.warning("CoinPay proof has invalid proofValue for DID: %s", did)
+        return False
+    return True
+
+
 async def fetch_coinpay_reputation(did: str) -> CoinPayData:
     """Fetch reputation data for a DID from CoinPayPortal.
     
@@ -60,6 +111,11 @@ async def fetch_coinpay_reputation(did: str) -> CoinPayData:
     """
     if not did:
         return CoinPayData()
+
+    # Validate DID format before making API call
+    if not _validate_did(did):
+        logger.warning("Invalid DID format, skipping CoinPay lookup: %s", did)
+        return CoinPayData(did=did, error="invalid DID format")
 
     url = f"{COINPAY_BASE_URL}/api/reputation/agent/{did}/reputation"
 
@@ -78,6 +134,10 @@ async def fetch_coinpay_reputation(did: str) -> CoinPayData:
             data = resp.json()
             if not data.get("success"):
                 return CoinPayData(did=did, error="API returned success=false")
+
+            # Validate proof chain before trusting reputation data
+            if not _validate_proof_chain(data, did):
+                return CoinPayData(did=did, error="proof chain validation failed")
 
             # Parse trust vector (top-level key)
             tv = CoinPayTrustVector()

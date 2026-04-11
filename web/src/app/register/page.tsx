@@ -1,6 +1,7 @@
 'use client';
 
 import { useState } from 'react';
+import Link from 'next/link';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Navbar } from '@/components/ui/navbar';
 import { Card } from '@/components/ui/card';
@@ -88,17 +89,19 @@ export default function RegisterPage() {
 
   // Success state
   if (result) {
+    const profileSlug = encodeURIComponent(name.trim() || result.agent_id);
+
     return (
       <>
         <Navbar />
-        <main className="min-h-screen flex flex-col items-center justify-center px-6 pt-24 pb-20">
+        <main className="min-h-screen px-6 pt-28 pb-20">
           <motion.div
-            className="w-full max-w-xl"
+            className="w-full max-w-5xl mx-auto"
             initial={{ opacity: 0, scale: 0.95 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ duration: 0.5 }}
           >
-            <div className="text-center mb-8">
+            <div className="text-center mb-10">
               <motion.div
                 className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-emerald-500/10 border border-emerald-500/20 mb-6"
                 initial={{ scale: 0 }}
@@ -110,65 +113,91 @@ export default function RegisterPage() {
                 </svg>
               </motion.div>
               <h1 className="font-heading text-3xl md:text-4xl font-bold tracking-tight mb-2">
-                Agent Registered!
+                Agent Identity Created
               </h1>
-              <p className="text-zinc-500 text-sm">Your agent identity has been created successfully.</p>
+              <p className="text-zinc-500 text-sm max-w-2xl mx-auto leading-relaxed">
+                Registration is complete. Copy your credentials once, then finish the public profile and verify how the agent will appear across isnad surfaces.
+              </p>
             </div>
 
-            <Card>
-              <div className="space-y-5">
-                {/* Agent ID */}
-                <div>
-                  <label className="block text-[10px] font-mono tracking-[0.2em] uppercase text-zinc-500 mb-2">
-                    Agent ID
-                  </label>
-                  <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 font-mono text-sm text-isnad-teal break-all">
-                    {result.agent_id}
-                  </div>
-                </div>
-
-                {/* Public Key */}
-                <div>
-                  <label className="block text-[10px] font-mono tracking-[0.2em] uppercase text-zinc-500 mb-2">
-                    Public Key (Ed25519)
-                  </label>
-                  <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 font-mono text-xs text-zinc-300 break-all">
-                    {result.public_key}
-                  </div>
-                </div>
-
-                {/* API Key — WARNING */}
-                <div>
-                  <label className="block text-[10px] font-mono tracking-[0.2em] uppercase text-zinc-500 mb-2">
-                    API Key
-                  </label>
-                  <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl px-4 py-3 font-mono text-sm text-amber-300 break-all">
-                    {result.api_key}
-                  </div>
-                  <div className="mt-3 p-3 rounded-xl bg-red-500/10 border border-red-500/20">
-                    <p className="text-red-400 text-xs font-medium flex items-center gap-2">
-                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                        <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-                        <line x1="12" y1="9" x2="12" y2="13" />
-                        <line x1="12" y1="17" x2="12.01" y2="17" />
-                      </svg>
-                      Save this API key now! It will NOT be shown again.
+            <div className="grid gap-6 lg:grid-cols-[1.15fr_0.85fr]">
+              <Card className="space-y-6">
+                <div className="flex items-start justify-between gap-4 border-b border-white/[0.06] pb-5">
+                  <div>
+                    <div className="text-[10px] font-mono tracking-[0.26em] uppercase text-isnad-teal/70">
+                      Registration bundle
+                    </div>
+                    <h2 className="mt-2 text-2xl font-semibold text-white">
+                      Credentials issued successfully
+                    </h2>
+                    <p className="mt-2 text-sm leading-relaxed text-zinc-500">
+                      The API key is visible only on this screen. Copy it before leaving.
                     </p>
                   </div>
-                </div>
-
-                {/* Created At */}
-                <div>
-                  <label className="block text-[10px] font-mono tracking-[0.2em] uppercase text-zinc-500 mb-2">
-                    Created At
-                  </label>
-                  <div className="text-zinc-400 text-sm font-mono">
-                    {new Date(result.created_at).toLocaleString()}
+                  <div className="rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-mono text-emerald-300">
+                    ready
                   </div>
                 </div>
 
-                {/* Copy buttons */}
-                <div className="flex gap-3 pt-2">
+                <div className="space-y-5">
+                  <div>
+                    <label className="block text-[10px] font-mono tracking-[0.2em] uppercase text-zinc-500 mb-2">
+                      Agent ID
+                    </label>
+                    <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 font-mono text-sm text-isnad-teal break-all">
+                      {result.agent_id}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono tracking-[0.2em] uppercase text-zinc-500 mb-2">
+                      Public Key (Ed25519)
+                    </label>
+                    <div className="bg-white/[0.03] border border-white/[0.08] rounded-xl px-4 py-3 font-mono text-xs text-zinc-300 break-all">
+                      {result.public_key}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label className="block text-[10px] font-mono tracking-[0.2em] uppercase text-zinc-500 mb-2">
+                      API Key
+                    </label>
+                    <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl px-4 py-3 font-mono text-sm text-amber-300 break-all">
+                      {result.api_key}
+                    </div>
+                    <div className="mt-3 rounded-2xl border border-red-500/20 bg-red-500/10 p-4">
+                      <p className="flex items-center gap-2 text-xs font-medium text-red-300">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                          <path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+                          <line x1="12" y1="9" x2="12" y2="13" />
+                          <line x1="12" y1="17" x2="12.01" y2="17" />
+                        </svg>
+                        Save this key in your password manager. It will not be shown again.
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 sm:grid-cols-2">
+                  <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+                    <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-zinc-500">
+                      Created
+                    </div>
+                    <div className="mt-2 text-sm text-zinc-300">
+                      {new Date(result.created_at).toLocaleString()}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+                    <div className="text-[10px] font-mono tracking-[0.2em] uppercase text-zinc-500">
+                      Recommended next move
+                    </div>
+                    <div className="mt-2 text-sm text-zinc-300">
+                      Open the profile editor and add final public details.
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-3 pt-2">
                   <Button
                     variant="ghost"
                     size="sm"
@@ -183,9 +212,71 @@ export default function RegisterPage() {
                   >
                     Copy Agent ID
                   </Button>
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => navigator.clipboard.writeText(result.public_key)}
+                  >
+                    Copy Public Key
+                  </Button>
                 </div>
+              </Card>
+
+              <div className="space-y-6">
+                <Card className="space-y-4">
+                  <div className="text-[10px] font-mono tracking-[0.26em] uppercase text-isnad-teal/70">
+                    Next steps
+                  </div>
+                  {[
+                    {
+                      step: '01',
+                      title: 'Finish your public profile',
+                      copy: 'Add avatar, description, offerings, and contact data so the profile looks credible when shared.',
+                    },
+                    {
+                      step: '02',
+                      title: 'Verify your public surface',
+                      copy: 'Open the public agent page and check how the name, score, and metadata render.',
+                    },
+                    {
+                      step: '03',
+                      title: 'Start integrating',
+                      copy: 'Use the docs to wire isnad checks or badges into your own product flow.',
+                    },
+                  ].map((item) => (
+                    <div key={item.step} className="rounded-2xl border border-white/[0.06] bg-white/[0.02] p-4">
+                      <div className="flex items-center gap-3">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-isnad-teal/10 text-xs font-mono text-isnad-teal">
+                          {item.step}
+                        </span>
+                        <h3 className="text-sm font-semibold text-white">{item.title}</h3>
+                      </div>
+                      <p className="mt-3 text-sm leading-6 text-zinc-500">{item.copy}</p>
+                    </div>
+                  ))}
+                </Card>
+
+                <Card className="space-y-4">
+                  <div className="text-[10px] font-mono tracking-[0.26em] uppercase text-zinc-500">
+                    Open now
+                  </div>
+                  <div className="flex flex-col gap-3">
+                    <Link href={`/profile/edit?agentId=${encodeURIComponent(result.agent_id)}`}>
+                      <Button size="lg" className="w-full">Open Profile Editor</Button>
+                    </Link>
+                    <Link href={`/agents/${profileSlug}`}>
+                      <Button variant="secondary" size="lg" className="w-full">View Public Profile</Button>
+                    </Link>
+                    <Link href="/docs">
+                      <Button variant="ghost" size="lg" className="w-full">Read API Docs</Button>
+                    </Link>
+                  </div>
+                  <p className="text-xs leading-5 text-zinc-500">
+                    The profile editor is prefilled with your agent ID. You will still need the API key from this screen to load and update the profile.
+                  </p>
+                </Card>
               </div>
-            </Card>
+            </div>
           </motion.div>
         </main>
       </>

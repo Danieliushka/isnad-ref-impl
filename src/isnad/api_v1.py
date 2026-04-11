@@ -3,11 +3,18 @@ isnad API v1 — Versioned REST API for the isnad trust platform.
 
 Router prefix: /api/v1
 Public endpoints (no auth required):
-  GET /check/{agent_id}     — Full trust check report (flagship)
+  GET /check/{agent_id}     — Cached trust check report (no recompute)
   GET /explorer              — Paginated agent list with scores
   GET /explorer/{agent_id}   — Single agent detail
   GET /stats                 — Platform statistics
   GET /health                — Health check
+
+Auth-required endpoints:
+  POST /check               — Live trust check (X-API-Key, counts quota)
+  GET  /check?agent=<id>    — Live trust check (X-API-Key, counts quota)
+  GET  /usage               — API usage stats (X-API-Key, NO quota cost)
+  POST /keys                — Create API key (X-Admin-Key)
+  POST /agents/{id}/recalculate-score — Force recompute (X-Admin-Key)
 """
 
 from __future__ import annotations
@@ -51,6 +58,40 @@ class DimensionScore(BaseModel):
     """Score for a single v3 dimension."""
     raw: float = 0.0
     weighted: float = 0.0
+
+
+class CanonicalDimension(BaseModel):
+    """Single dimension in the canonical trust response."""
+    raw: float = Field(0.0, description="Raw score 0.0-1.0")
+    weighted: float = Field(0.0, description="Weighted contribution")
+    weight: float = Field(0.0, description="Dimension weight (e.g. 0.30)")
+
+
+class BadgeSummary(BaseModel):
+    """Badge in the canonical trust response."""
+    badge_type: str
+    status: str = "active"
+    granted_at: Optional[str] = None
+
+
+class CanonicalTrustResponse(BaseModel):
+    """Canonical trust response — single source of truth for all trust reads.
+
+    This is the ONE authoritative response shape for trust data.
+    All frontend surfaces, docs, badges, and explorer should use this model.
+    """
+    agent_id: str
+    score: int = Field(ge=0, le=100, description="Trust score 0-100")
+    grade: str = Field("UNKNOWN", description="UNKNOWN | EMERGING | ESTABLISHED | TRUSTED")
+    confidence: float = Field(0.0, ge=0.0, le=1.0, description="Confidence 0.0-1.0")
+    dimensions: Optional[dict[str, CanonicalDimension]] = Field(
+        None, description="Scoring dimensions: provenance (25%), track_record (30%), presence (20%), endorsements (15%), infra_integrity (10%)")
+    decay_factor: float = Field(1.0, description="Freshness decay multiplier")
+    verified_sources: list[str] = Field(default_factory=list, description="Platforms with verified presence")
+    badges: list[BadgeSummary] = Field(default_factory=list, description="Earned badges")
+    last_calculated_at: Optional[str] = Field(None, description="ISO-8601 timestamp of last v3 scoring run")
+    staleness: str = Field("unknown", description="fresh (<24h) | stale (>24h) | unknown (never scored)")
+    calculation_version: str = Field("v3", description="Scoring engine version")
 
 
 class TrustCheckResult(BaseModel):
@@ -347,6 +388,31 @@ async def require_api_key_with_rate_limit(
     return agent
 
 
+async def require_api_key_readonly(
+    request: Request, api_key: str = Security(_api_key_header)
+) -> dict:
+    """Validate API key WITHOUT incrementing usage counter.
+
+    Used for informational endpoints (e.g. /usage) that should not
+    consume quota themselves.
+    """
+    ip = request.client.host if request.client else "unknown"
+    if not api_key:
+        log_auth_failure(ip, "missing API key", request.url.path)
+        raise HTTPException(status_code=401, detail="Missing API key")
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    agent = await _db.get_agent_by_api_key(api_key)
+    if agent is None:
+        log_auth_failure(ip, "invalid API key", request.url.path)
+        raise HTTPException(status_code=403, detail="Invalid API key")
+
+    request.state.agent = agent
+    request.state.api_tier = agent.get("api_tier", "free")
+    return agent
+
+
 # ---------------------------------------------------------------------------
 # Lifespan
 # ---------------------------------------------------------------------------
@@ -567,8 +633,11 @@ class UsageResponse(BaseModel):
 
 
 @router.get("/usage", response_model=UsageResponse)
-async def get_usage(request: Request, agent: dict = Depends(require_api_key_with_rate_limit)):
-    """Get API usage for the current month. Requires X-API-Key header."""
+async def get_usage(request: Request, agent: dict = Depends(require_api_key_readonly)):
+    """Get API usage for the current month. Requires X-API-Key header.
+
+    This endpoint does NOT consume quota — it uses a read-only auth check.
+    """
     month = _current_month()
     usage = await _db.get_api_usage(agent["id"], month)
     tier = agent.get("api_tier", "free")
@@ -594,8 +663,11 @@ async def get_usage(request: Request, agent: dict = Depends(require_api_key_with
 
 
 @router.post("/keys", response_model=ApiKeyResponse)
-async def create_api_key(body: ApiKeyRequest):
-    """Generate a new API key. The raw key is returned once; only its hash is stored."""
+async def create_api_key(body: ApiKeyRequest, _admin: bool = Depends(require_admin_key)):
+    """Generate a new API key. The raw key is returned once; only its hash is stored.
+
+    Requires X-Admin-Key header — key creation is admin-only.
+    """
     if _db is None:
         raise HTTPException(status_code=503, detail="Database not available")
     raw_key = f"isnad_{secrets.token_urlsafe(32)}"
@@ -725,16 +797,19 @@ async def _run_v3_check(agent_identifier: str, request: Request, raw_hash: str |
             categories = [
                 CategoryScore(name="provenance", score=round(v3_result.provenance.raw * 100),
                               modules_passed=round(v3_result.provenance.raw * 10), modules_total=10,
-                              findings=[f"Provenance: {v3_result.provenance.raw:.0%} (weight 30%)"]),
+                              findings=[f"Provenance: {v3_result.provenance.raw:.0%} (weight 25%)"]),
                 CategoryScore(name="track_record", score=round(v3_result.track_record.raw * 100),
                               modules_passed=round(v3_result.track_record.raw * 10), modules_total=10,
-                              findings=[f"Track Record: {v3_result.track_record.raw:.0%} (weight 35%)"]),
+                              findings=[f"Track Record: {v3_result.track_record.raw:.0%} (weight 30%)"]),
                 CategoryScore(name="presence", score=round(v3_result.presence.raw * 100),
                               modules_passed=round(v3_result.presence.raw * 10), modules_total=10,
                               findings=[f"Presence: {v3_result.presence.raw:.0%} (weight 20%)"]),
                 CategoryScore(name="endorsements", score=round(v3_result.endorsements.raw * 100),
                               modules_passed=round(v3_result.endorsements.raw * 10), modules_total=10,
                               findings=[f"Endorsements: {v3_result.endorsements.raw:.0%} (weight 15%)"]),
+                CategoryScore(name="infra_integrity", score=round(v3_result.infra_integrity.raw * 100),
+                              modules_passed=round(v3_result.infra_integrity.raw * 10), modules_total=10,
+                              findings=[f"Infrastructure Integrity: {v3_result.infra_integrity.raw:.0%} (weight 10%)"]),
             ]
 
             att_count = v3_result.data_snapshot.get("internal", {}).get("attestations", 0)
@@ -749,6 +824,7 @@ async def _run_v3_check(agent_identifier: str, request: Request, raw_hash: str |
                     "track_record": DimensionScore(raw=v3_result.track_record.raw, weighted=v3_result.track_record.weighted),
                     "presence": DimensionScore(raw=v3_result.presence.raw, weighted=v3_result.presence.weighted),
                     "endorsements": DimensionScore(raw=v3_result.endorsements.raw, weighted=v3_result.endorsements.weighted),
+                    "infra_integrity": DimensionScore(raw=v3_result.infra_integrity.raw, weighted=v3_result.infra_integrity.weighted),
                 },
                 decay_factor=v3_result.decay_factor,
                 risk_flags=risk_flags,
@@ -828,13 +904,164 @@ async def check_agent_query(
 @limiter.limit("60/minute")
 async def check_agent(agent_id: str, request: Request):
     """
-    **Flagship endpoint** — Unified v3 trust evaluation.
+    **Flagship endpoint** — Unified v3 trust evaluation (read-only).
 
-    Uses the v3 scoring engine (4 dimensions: Provenance 30%, Track Record 35%,
-    Presence 20%, Endorsements 15%) with confidence and tier assignment.
+    Returns the last cached trust report for the agent. No live recompute
+    is triggered on this public GET. Use POST /agents/{agent_id}/recalculate-score
+    (admin-only) to force a fresh computation.
     """
     sanitize_input(agent_id, "agent_id")
-    return await _run_v3_check(agent_id, request)
+
+    # Snapshot-only: return cached report, never trigger live recompute
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    # Resolve agent
+    agent_row = await _db.get_agent(agent_id)
+    if agent_row is None:
+        agent_row = await _db.get_agent_by_name(agent_id)
+    if agent_row is None:
+        agent_row = await _db.get_agent_by_pubkey(agent_id)
+    if agent_row is None:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    resolved_id = agent_row["id"]
+    checks = await _db.get_trust_checks(resolved_id, limit=1)
+    if checks:
+        report = checks[0].get("report", {})
+        if isinstance(report, dict) and "overall_score" in report:
+            try:
+                return TrustCheckResult(**report)
+            except Exception:
+                pass
+
+    # No cached score — return a minimal response from agent row data
+    now = datetime.now(timezone.utc)
+    return TrustCheckResult(
+        agent_id=resolved_id,
+        overall_score=round(agent_row.get("trust_score", 0) or 0),
+        confidence=agent_row.get("trust_confidence", 0.0) or 0.0,
+        tier=agent_row.get("trust_tier", "UNKNOWN") or "UNKNOWN",
+        last_checked=now.isoformat() + "Z",
+        certified=bool(agent_row.get("is_certified")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Canonical Trust Endpoint — single source of truth
+# ---------------------------------------------------------------------------
+
+_DIMENSION_WEIGHTS = {
+    "provenance": 0.25,
+    "track_record": 0.30,
+    "presence": 0.20,
+    "endorsements": 0.15,
+    "infra_integrity": 0.10,
+}
+
+
+@router.get("/trust/{agent_id}", response_model=CanonicalTrustResponse,
+            tags=["Trust"], summary="Canonical trust read (snapshot)")
+@limiter.limit("120/minute")
+async def get_canonical_trust(agent_id: str, request: Request):
+    """**Canonical trust endpoint** — returns the authoritative trust snapshot.
+
+    This is a pure read from the database. No live recompute is triggered.
+    Returns the latest v3 scoring result with dimensions, badges, verified sources,
+    and staleness indicator.
+
+    Use `POST /agents/{agent_id}/recalculate-score` (admin-only) to trigger a fresh
+    computation.
+    """
+    sanitize_input(agent_id, "agent_id")
+
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    # Resolve agent
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        agent = await _db.get_agent_by_name(agent_id)
+    if not agent:
+        agent = await _db.get_agent_by_pubkey(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    resolved_id = agent["id"]
+    score = round(agent.get("trust_score", 0) or 0)
+    grade = agent.get("trust_tier", "UNKNOWN") or "UNKNOWN"
+    confidence = agent.get("trust_confidence", 0.0) or 0.0
+    last_scored = agent.get("last_scored_at")
+
+    # Compute staleness
+    staleness = "unknown"
+    last_calculated_at = None
+    if last_scored:
+        last_calculated_at = str(last_scored)
+        try:
+            scored_dt = datetime.fromisoformat(str(last_scored).replace("Z", "+00:00"))
+            age_hours = (datetime.now(timezone.utc) - scored_dt).total_seconds() / 3600
+            staleness = "fresh" if age_hours < 24 else "stale"
+        except Exception:
+            staleness = "unknown"
+
+    # Get dimensions from latest score_audit
+    dimensions = None
+    decay_factor = 1.0
+    audit = await _db.get_latest_score_audit(resolved_id)
+    if audit:
+        dimensions = {}
+        # Parse data_snapshot for dimensions not stored as columns (e.g. infra_integrity)
+        snapshot = audit.get("data_snapshot")
+        if isinstance(snapshot, str):
+            try:
+                import json as _json
+                snapshot = _json.loads(snapshot)
+            except Exception:
+                snapshot = {}
+        elif not isinstance(snapshot, dict):
+            snapshot = {}
+        for dim_name, weight in _DIMENSION_WEIGHTS.items():
+            raw_val = audit.get(f"{dim_name}_raw", None)
+            if raw_val is None and dim_name == "infra_integrity":
+                # Fallback: read from data_snapshot
+                raw_val = (snapshot.get("infra", {}) or {}).get("score", 0.0)
+            raw_val = raw_val or 0.0
+            dimensions[dim_name] = CanonicalDimension(
+                raw=round(float(raw_val), 4),
+                weighted=round(float(raw_val) * weight, 4),
+                weight=weight,
+            )
+        decay_factor = audit.get("decay_factor", 1.0) or 1.0
+
+    # Get verified sources from platform_data (deduplicated, sorted)
+    platform_rows = await _db.get_platform_data(resolved_id)
+    verified_sources = sorted({p["platform_name"] for p in platform_rows if p.get("platform_name")})
+
+    # Get badges
+    badge_rows = await _db.get_badges(resolved_id)
+    badges = [
+        BadgeSummary(
+            badge_type=b.get("badge_type", ""),
+            status=b.get("status", "active"),
+            granted_at=b.get("granted_at"),
+        )
+        for b in badge_rows
+    ]
+
+    return CanonicalTrustResponse(
+        agent_id=resolved_id,
+        score=min(max(score, 0), 100),
+        grade=grade,
+        confidence=round(confidence, 4),
+        dimensions=dimensions,
+        decay_factor=round(decay_factor, 4),
+        verified_sources=verified_sources,
+        badges=badges,
+        last_calculated_at=last_calculated_at,
+        staleness=staleness,
+        calculation_version="v3",
+    )
 
 
 @router.get("/verify/{agent_id}", response_model=VerifyResponse)
@@ -971,14 +1198,17 @@ async def explorer_detail(agent_id: str):
         try:
             agent_row = await _db.get_agent(agent_id)
             if agent_row is None:
+                agent_row = await _db.get_agent_by_name(agent_id)
+            if agent_row is None:
                 agent_row = await _db.get_agent_by_pubkey(agent_id)
         except Exception:
             pass
 
     if agent_row:
+        resolved_id = agent_row["id"]
         atts = []
         try:
-            atts = await _db.get_attestations_for_subject(agent_id)
+            atts = await _db.get_attestations_for_subject(resolved_id)
         except Exception:
             pass
         import json
@@ -1228,7 +1458,7 @@ async def list_agents(
         total = count_row["cnt"]
 
         rows = await conn.fetch(
-            f"SELECT * FROM agents {where} ORDER BY created_at DESC LIMIT ${param_idx} OFFSET ${param_idx + 1}",
+            f"SELECT * FROM agents {where} ORDER BY trust_score DESC, created_at DESC LIMIT ${param_idx} OFFSET ${param_idx + 1}",
             *params, limit, offset,
         )
 
@@ -1410,9 +1640,14 @@ async def get_trust_report(agent_id: str):
 
     agent = await _db.get_agent(agent_id)
     if not agent:
+        agent = await _db.get_agent_by_name(agent_id)
+    if not agent:
+        agent = await _db.get_agent_by_pubkey(agent_id)
+    if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    platform_data = await _db.get_platform_data(agent_id)
+    resolved_id = agent["id"]
+    platform_data = await _db.get_platform_data(resolved_id)
 
     from isnad.trustscore.scorer_v2 import PlatformTrustCalculator
     calc = PlatformTrustCalculator(platform_data)
@@ -1461,16 +1696,18 @@ async def create_agent_badge(agent_id: str, body: BadgeCreate, _admin: bool = De
     if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    badge_id = hashlib.sha256(f"badge:{agent_id}:{body.badge_type}:{time.time()}".encode()).hexdigest()[:16]
-    created = await _db.create_badge(badge_id, agent_id, body.badge_type, body.expires_at, body.metadata)
+    now_iso = datetime.now(timezone.utc).isoformat() + "Z"
+    created = await _db.create_badge(agent_id, body.badge_type, status="active",
+                                     granted_at=now_iso, expires_at=body.expires_at)
     if not created:
         raise HTTPException(status_code=409, detail="Badge already exists for this agent")
 
+    badge_id = hashlib.sha256(f"badge:{agent_id}:{body.badge_type}".encode()).hexdigest()[:16]
     return BadgeOut(
         id=badge_id,
         agent_id=agent_id,
         badge_type=body.badge_type,
-        granted_at=datetime.now(timezone.utc).isoformat() + "Z",
+        granted_at=now_iso,
         expires_at=body.expires_at,
         metadata=body.metadata,
     )
@@ -1480,8 +1717,189 @@ async def _auto_grant_badge(agent_id: str, badge_type: str, metadata: Optional[d
     """Auto-grant a badge if not already present. Called internally."""
     if _db is None:
         return
-    badge_id = hashlib.sha256(f"badge:{agent_id}:{badge_type}:auto".encode()).hexdigest()[:16]
-    await _db.create_badge(badge_id, agent_id, badge_type, metadata=metadata or {})
+    now_iso = datetime.now(timezone.utc).isoformat() + "Z"
+    await _db.create_badge(agent_id, badge_type, status="active", granted_at=now_iso)
+
+
+# ---------------------------------------------------------------------------
+# Evidence Submission Endpoint — DAN-105 (Hash Agent × isnad)
+# ---------------------------------------------------------------------------
+
+class EvidenceSubmitRequest(BaseModel):
+    """Evidence submission from an external agent (e.g. Hash Agent / SkillFence).
+
+    The payload is Ed25519-signed by the submitting agent. The signature covers
+    the canonical JSON of the payload fields (sorted keys, no whitespace).
+    """
+    agent_id: str = Field(..., min_length=1, max_length=200, description="Submitting agent's isnad ID or public key")
+    audit_id: str = Field(..., min_length=1, max_length=200, description="UUID of the audit/scan run")
+    evidence_type: str = Field("security_scan", description="Type: security_scan | code_review | behavioral | attestation")
+    payload: dict = Field(..., description="Evidence data (findings, scores, metadata)")
+    signature: str = Field(..., min_length=1, description="Hex-encoded Ed25519 signature over canonical payload JSON")
+    public_key: str = Field(..., min_length=64, max_length=64, description="Hex-encoded Ed25519 public key (32 bytes)")
+
+
+class EvidenceSubmitResponse(BaseModel):
+    """Confirmation of evidence submission."""
+    evidence_id: str
+    agent_id: str
+    audit_id: str
+    verified: bool
+    score_impact: float = Field(0.0, description="Impact on agent's trust score (0.0 if not yet applied)")
+    message: str = "Evidence received and verified."
+
+
+VALID_EVIDENCE_TYPES = {"security_scan", "code_review", "behavioral", "attestation"}
+
+
+def _verify_ed25519_signature(payload: dict, signature_hex: str, public_key_hex: str) -> tuple[bool, str]:
+    """Verify an Ed25519 signature over canonical JSON payload.
+
+    Returns (is_valid, error_message).
+    """
+    try:
+        from nacl.signing import VerifyKey
+        from nacl.exceptions import BadSignatureError
+
+        # Canonical JSON: sorted keys, no whitespace
+        canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"))
+        message_bytes = canonical.encode("utf-8")
+
+        verify_key = VerifyKey(bytes.fromhex(public_key_hex))
+        signature_bytes = bytes.fromhex(signature_hex)
+        verify_key.verify(message_bytes, signature_bytes)
+        return True, ""
+    except BadSignatureError:
+        return False, "Invalid signature: payload does not match"
+    except ValueError as e:
+        return False, f"Invalid key or signature format: {e}"
+    except Exception as e:
+        return False, f"Signature verification failed: {e}"
+
+
+@router.post("/evidence", response_model=EvidenceSubmitResponse, status_code=201)
+@limiter.limit("30/minute")
+async def submit_evidence(request: Request, body: EvidenceSubmitRequest):
+    """Submit cryptographically signed evidence from an external agent.
+
+    Used by agents like Hash Agent (SkillFence) to submit security scan
+    results, code review findings, or other evidence that feeds into
+    the isnad trust scoring engine.
+
+    The signature must be a valid Ed25519 signature over the canonical
+    JSON representation of the payload (sorted keys, compact separators).
+    """
+    sanitize_input(body.agent_id, "agent_id")
+    sanitize_input(body.audit_id, "audit_id")
+
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    if body.evidence_type not in VALID_EVIDENCE_TYPES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid evidence_type. Must be one of: {sorted(VALID_EVIDENCE_TYPES)}",
+        )
+
+    # Verify Ed25519 signature
+    sig_valid, sig_error = _verify_ed25519_signature(body.payload, body.signature, body.public_key)
+
+    # Resolve agent — by ID or public key
+    agent = await _db.get_agent(body.agent_id)
+    if agent is None:
+        agent = await _db.get_agent_by_pubkey(body.public_key)
+    if agent is None:
+        raise HTTPException(status_code=404, detail="Agent not registered. Register first via POST /api/v1/register")
+
+    resolved_agent_id = agent["id"]
+
+    # Check public key matches registered agent
+    stored_pk = agent.get("public_key", "")
+    if stored_pk and stored_pk != body.public_key:
+        raise HTTPException(
+            status_code=403,
+            detail="Public key does not match registered agent's key",
+        )
+
+    # Generate evidence ID
+    evidence_id = hashlib.sha256(
+        f"ev:{resolved_agent_id}:{body.audit_id}:{time.time()}".encode()
+    ).hexdigest()[:24]
+
+    # Check for duplicate audit_id from same agent
+    existing = await _db.get_evidence_for_audit(body.audit_id)
+    for ev in existing:
+        if ev.get("agent_id") == resolved_agent_id:
+            raise HTTPException(
+                status_code=409,
+                detail=f"Evidence for audit_id '{body.audit_id}' already submitted by this agent",
+            )
+
+    # Calculate score impact based on evidence type and verification
+    score_impact = 0.0
+    if sig_valid:
+        impact_map = {
+            "security_scan": 2.0,
+            "code_review": 1.5,
+            "behavioral": 1.0,
+            "attestation": 0.5,
+        }
+        score_impact = impact_map.get(body.evidence_type, 0.5)
+
+    # Store evidence
+    record = await _db.create_evidence(
+        evidence_id=evidence_id,
+        agent_id=resolved_agent_id,
+        audit_id=body.audit_id,
+        evidence_type=body.evidence_type,
+        payload=body.payload,
+        signature=body.signature,
+        public_key=body.public_key,
+        verified=sig_valid,
+        verification_error=sig_error if not sig_valid else None,
+        score_impact=score_impact if sig_valid else 0.0,
+    )
+
+    # Also create a behavioral signal for the scoring engine
+    if sig_valid:
+        try:
+            await _db.create_behavioral_signal(
+                agent_id=resolved_agent_id,
+                source=body.evidence_type,
+                event_type="evidence_submitted",
+                metadata={
+                    "evidence_id": evidence_id,
+                    "audit_id": body.audit_id,
+                    "score_impact": score_impact,
+                    "payload_summary": {k: type(v).__name__ for k, v in body.payload.items()},
+                },
+            )
+        except Exception:
+            pass  # Non-critical
+
+    message = "Evidence received and verified." if sig_valid else f"Evidence received but signature invalid: {sig_error}"
+
+    return EvidenceSubmitResponse(
+        evidence_id=evidence_id,
+        agent_id=resolved_agent_id,
+        audit_id=body.audit_id,
+        verified=sig_valid,
+        score_impact=score_impact if sig_valid else 0.0,
+        message=message,
+    )
+
+
+@router.get("/evidence/{agent_id}")
+async def get_agent_evidence(
+    agent_id: str,
+    limit: int = Query(50, ge=1, le=200),
+    _caller: dict = Depends(require_api_key_with_rate_limit),
+):
+    """Get evidence submissions for an agent. Requires API key."""
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+    records = await _db.get_evidence_for_agent(agent_id, limit=limit)
+    return {"agent_id": agent_id, "evidence": records, "total": len(records)}
 
 
 # ---------------------------------------------------------------------------
@@ -1672,8 +2090,11 @@ class ScoreV3Response(BaseModel):
 
 
 @router.get("/agents/{agent_id}/score", response_model=ScoreV3Response)
-async def get_agent_score_v3(agent_id: str):
-    """Get v3 trust score with full breakdown (4 dimensions + confidence + tier)."""
+async def get_agent_score_v3(agent_id: str, _admin: bool = Depends(require_admin_key)):
+    """Get v3 trust score with full breakdown (4 dimensions + confidence + tier).
+
+    Requires X-Admin-Key — triggers live v3 recompute.
+    """
     if _db is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
@@ -1694,42 +2115,35 @@ async def get_agent_score_v3(agent_id: str):
 async def trust_score_v2_compat(agent_id: str, request: Request):
     """Backward-compatible trust-score-v2 endpoint.
 
-    Calls the same TrustScorerV2 logic as the old API and returns the
-    response shape the frontend expects.
+    Only returns data for registered agents. Returns 404 for unknown agents.
     """
     from isnad.trustscore.scorer_v2 import TrustScorerV2
 
-    # Try to resolve platform links from DB
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    # Resolve agent — MUST be registered
     platforms: dict[str, str] = {}
     resolved_id = agent_id
+    agent_row = await _db.get_agent(agent_id)
+    if agent_row is None:
+        agent_row = await _db.get_agent_by_name(agent_id)
+    if agent_row is None:
+        raise HTTPException(status_code=404, detail="Agent not found. Only registered agents have trust scores.")
 
-    if _db is not None:
+    resolved_id = agent_row["id"]
+    import json as _json
+    plats_raw = agent_row.get("platforms", "[]")
+    if isinstance(plats_raw, str):
         try:
-            agent_row = await _db.get_agent(agent_id)
-            if agent_row is None:
-                # Try lookup by name
-                async with _db._pool.acquire() as conn:
-                    row = await conn.fetchrow(
-                        "SELECT * FROM agents WHERE LOWER(name) = LOWER($1)", agent_id
-                    )
-                    if row:
-                        agent_row = dict(row)
-            if agent_row:
-                resolved_id = agent_row["id"]
-                import json as _json
-                plats_raw = agent_row.get("platforms", "[]")
-                if isinstance(plats_raw, str):
-                    try:
-                        plats_raw = _json.loads(plats_raw)
-                    except Exception:
-                        plats_raw = []
-                for p in (plats_raw if isinstance(plats_raw, list) else []):
-                    pname = p.get("name", "").lower() if isinstance(p, dict) else ""
-                    purl = p.get("url", "") if isinstance(p, dict) else ""
-                    if pname and purl:
-                        platforms[pname] = purl
+            plats_raw = _json.loads(plats_raw)
         except Exception:
-            pass
+            plats_raw = []
+    for p in (plats_raw if isinstance(plats_raw, list) else []):
+        pname = p.get("name", "").lower() if isinstance(p, dict) else ""
+        purl = p.get("url", "") if isinstance(p, dict) else ""
+        if pname and purl:
+            platforms[pname] = purl
 
     # Also check attestation metadata (like old API)
     for att in _trust_chain.attestations:
@@ -1961,8 +2375,16 @@ async def get_score_breakdown(agent_id: str):
             RealScoreCategory(**c) for c in report.get("categories", [])
         ]
 
-        from scoring.engine import score_to_tier, tier_emoji as _tier_emoji
-        tier = report.get("tier", score_to_tier(report.get("total_score", 0)))
+        def _score_to_tier(s):
+            if s >= 80: return "TRUSTED"
+            if s >= 60: return "VERIFIED"
+            if s >= 40: return "BASIC"
+            if s >= 20: return "UNVERIFIED"
+            return "UNKNOWN"
+        def _tier_emoji(t):
+            return {"TRUSTED": "🟢", "VERIFIED": "🔵", "BASIC": "🟡", "UNVERIFIED": "🟠", "UNKNOWN": "🔴"}.get(t, "⚪")
+
+        tier = report.get("tier", _score_to_tier(report.get("total_score", 0)))
 
         return RealScoreBreakdownResponse(
             agent_id=resolved_id,
@@ -1976,9 +2398,16 @@ async def get_score_breakdown(agent_id: str):
         )
 
     # No scoring-engine report yet — return basic info
-    from scoring.engine import score_to_tier, tier_emoji as _tier_emoji
+    def _score_to_tier(s):
+        if s >= 80: return "TRUSTED"
+        if s >= 60: return "VERIFIED"
+        if s >= 40: return "BASIC"
+        if s >= 20: return "UNVERIFIED"
+        return "UNKNOWN"
+    def _tier_emoji(t):
+        return {"TRUSTED": "🟢", "VERIFIED": "🔵", "BASIC": "🟡", "UNVERIFIED": "🟠", "UNKNOWN": "🔴"}.get(t, "⚪")
     ts = agent.get("trust_score", 0) or 0
-    tier = score_to_tier(ts)
+    tier = _score_to_tier(ts)
     return RealScoreBreakdownResponse(
         agent_id=resolved_id,
         agent_name=agent.get("name", ""),
@@ -1991,8 +2420,11 @@ async def get_score_breakdown(agent_id: str):
 
 
 @router.post("/agents/{agent_id}/recalculate-score", response_model=RecalculateResponse)
-async def recalculate_score(agent_id: str):
-    """Recalculate trust score using v3 scoring engine."""
+async def recalculate_score(agent_id: str, _admin: bool = Depends(require_admin_key)):
+    """Recalculate trust score using v3 scoring engine.
+
+    Requires X-Admin-Key header — recomputation is expensive and admin-only.
+    """
     if _db is None:
         raise HTTPException(status_code=503, detail="Database not available")
 
@@ -2007,6 +2439,44 @@ async def recalculate_score(agent_id: str):
     from isnad.scoring.engine_v3 import ScoringEngineV3
     engine = ScoringEngineV3(db=_db)
     result = await engine.compute_and_store(agent)
+
+    # Also store full report in trust_checks so GET /check/{id} returns fresh data
+    try:
+        now = datetime.now(timezone.utc)
+        report_data = {
+            "agent_id": agent["id"],
+            "overall_score": result.final_score,
+            "confidence": result.confidence,
+            "tier": result.tier,
+            "dimensions": {
+                "provenance": {"raw": result.provenance.raw, "weighted": result.provenance.weighted},
+                "track_record": {"raw": result.track_record.raw, "weighted": result.track_record.weighted},
+                "presence": {"raw": result.presence.raw, "weighted": result.presence.weighted},
+                "endorsements": {"raw": result.endorsements.raw, "weighted": result.endorsements.weighted},
+                "infra_integrity": {"raw": result.infra_integrity.raw, "weighted": result.infra_integrity.weighted},
+            },
+            "decay_factor": result.decay_factor,
+            "risk_flags": [],
+            "attestation_count": result.data_snapshot.get("internal", {}).get("attestations", 0),
+            "last_checked": now.isoformat() + "Z",
+            "categories": [
+                {"name": "provenance", "score": round(result.provenance.raw * 100), "modules_passed": round(result.provenance.raw * 10), "modules_total": 10, "findings": [f"Provenance: {result.provenance.raw:.0%} (weight 25%)"]},
+                {"name": "track_record", "score": round(result.track_record.raw * 100), "modules_passed": round(result.track_record.raw * 10), "modules_total": 10, "findings": [f"Track Record: {result.track_record.raw:.0%} (weight 30%)"]},
+                {"name": "presence", "score": round(result.presence.raw * 100), "modules_passed": round(result.presence.raw * 10), "modules_total": 10, "findings": [f"Presence: {result.presence.raw:.0%} (weight 20%)"]},
+                {"name": "endorsements", "score": round(result.endorsements.raw * 100), "modules_passed": round(result.endorsements.raw * 10), "modules_total": 10, "findings": [f"Endorsements: {result.endorsements.raw:.0%} (weight 15%)"]},
+                {"name": "infra_integrity", "score": round(result.infra_integrity.raw * 100), "modules_passed": round(result.infra_integrity.raw * 10), "modules_total": 10, "findings": [f"Infrastructure Integrity: {result.infra_integrity.raw:.0%} (weight 10%)"]},
+            ],
+            "certification_id": "",
+            "certified": result.final_score >= 60 and result.confidence >= 0.4,
+        }
+        import json as _json
+        async with _db._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO trust_checks (agent_id, report, score, requested_at) VALUES ($1, $2, $3, $4)",
+                agent["id"], _json.dumps(report_data), result.final_score / 100.0, now.isoformat(),
+            )
+    except Exception as e:
+        logger.warning("Failed to store trust check report: %s", e)
 
     return RecalculateResponse(
         agent_id=agent["id"],
@@ -2066,7 +2536,9 @@ async def get_badge_svg(agent_id: str):
         raise HTTPException(status_code=404, detail="Agent not found")
 
     score = round(agent.get("trust_score", 0))
-    name = agent.get("name", agent_id)
+    # Escape user-controlled text for safe SVG embedding
+    import html as _html
+    name = _html.escape(agent.get("name", agent_id), quote=True)
 
     if score >= 80:
         tier, color, bg = "TRUSTED", "#00d4aa", "#0a2922"
@@ -2128,15 +2600,17 @@ async def paylock_webhook(request: Request):
     # Read raw body first (needed for HMAC before JSON parsing)
     body = await request.body()
 
-    # HMAC-SHA256 validation
+    # HMAC-SHA256 validation (fail-closed: reject if secret not configured)
     hmac_secret = os.environ.get("PAYLOCK_HMAC_SECRET", "")
-    if hmac_secret:
-        signature = request.headers.get("X-PayLock-Signature", "")
-        expected = hmac.new(
-            hmac_secret.encode(), body, hashlib.sha256
-        ).hexdigest()
-        if not hmac.compare_digest(signature, expected):
-            raise HTTPException(status_code=401, detail="Invalid HMAC signature")
+    if not hmac_secret:
+        logger.error("PayLock webhook called but PAYLOCK_HMAC_SECRET is not set — rejecting")
+        raise HTTPException(status_code=503, detail="Webhook verification not configured")
+    signature = request.headers.get("X-PayLock-Signature", "")
+    expected = hmac.new(
+        hmac_secret.encode(), body, hashlib.sha256
+    ).hexdigest()
+    if not hmac.compare_digest(signature, expected):
+        raise HTTPException(status_code=401, detail="Invalid HMAC signature")
 
     # Parse and validate body
     import json as _json

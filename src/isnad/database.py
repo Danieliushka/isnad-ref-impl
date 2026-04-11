@@ -179,7 +179,7 @@ class Database:
     async def list_agents(self, limit: int = 100, offset: int = 0) -> list[dict]:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM agents ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                "SELECT * FROM agents ORDER BY trust_score DESC, created_at DESC LIMIT $1 OFFSET $2",
                 limit, offset,
             )
         return [_record_to_dict(r) for r in rows]
@@ -447,6 +447,15 @@ class Database:
             )
         return [_record_to_dict(r) for r in rows]
 
+    async def get_latest_score_audit(self, agent_id: str) -> dict | None:
+        """Get the most recent score_audit row for an agent."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM score_audit WHERE agent_id = $1 ORDER BY computed_at DESC LIMIT 1",
+                agent_id,
+            )
+        return _record_to_dict(row) if row else None
+
     # ─── Behavioral Signals ───────────────────────────────────────
 
     async def create_behavioral_signal(
@@ -505,6 +514,52 @@ class Database:
                     agent_id,
                 )
         return row["cnt"] if row else 0
+
+    # ─── Evidence CRUD ─────────────────────────────────────────────
+
+    async def create_evidence(
+        self, evidence_id: str, agent_id: str, audit_id: str,
+        evidence_type: str, payload: dict, signature: str,
+        public_key: str, verified: bool = False,
+        verification_error: str | None = None,
+        score_impact: float = 0.0,
+    ) -> dict:
+        """Insert an evidence submission from an external agent."""
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                """INSERT INTO evidence
+                   (evidence_id, agent_id, audit_id, evidence_type, payload,
+                    signature, public_key, verified, verification_error, score_impact)
+                   VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8, $9, $10)
+                   RETURNING *""",
+                evidence_id, agent_id, audit_id, evidence_type,
+                json.dumps(payload), signature, public_key,
+                verified, verification_error, score_impact,
+            )
+        return _record_to_dict(row)
+
+    async def get_evidence(self, evidence_id: str) -> Optional[dict]:
+        async with self._pool.acquire() as conn:
+            row = await conn.fetchrow(
+                "SELECT * FROM evidence WHERE evidence_id = $1", evidence_id,
+            )
+        return _record_to_dict(row) if row else None
+
+    async def get_evidence_for_agent(self, agent_id: str, limit: int = 50) -> list[dict]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM evidence WHERE agent_id = $1 ORDER BY submitted_at DESC LIMIT $2",
+                agent_id, limit,
+            )
+        return [_record_to_dict(r) for r in rows]
+
+    async def get_evidence_for_audit(self, audit_id: str) -> list[dict]:
+        async with self._pool.acquire() as conn:
+            rows = await conn.fetch(
+                "SELECT * FROM evidence WHERE audit_id = $1 ORDER BY submitted_at DESC",
+                audit_id,
+            )
+        return [_record_to_dict(r) for r in rows]
 
     # ─── Migration helper ──────────────────────────────────────────
 

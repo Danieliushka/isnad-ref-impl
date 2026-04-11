@@ -4,9 +4,10 @@ import os
 import pytest
 import pytest_asyncio
 
-# Ensure DATABASE_URL is set for tests
-DATABASE_URL = os.environ.get("DATABASE_URL", "postgresql://isnad:isnad_secret@localhost:5432/isnad_db")
-os.environ["DATABASE_URL"] = DATABASE_URL
+# ⛔ NEVER use prod DB for tests. Use isnad_test_db.
+# If isnad_test_db doesn't exist, tests will fail — that's intentional.
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "postgresql://isnad:isnad_secret@localhost:5432/isnad_test_db")
+os.environ["DATABASE_URL"] = TEST_DATABASE_URL
 
 from isnad.database import Database
 

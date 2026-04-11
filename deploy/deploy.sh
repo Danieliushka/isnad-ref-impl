@@ -12,7 +12,7 @@ docker compose up -d
 echo ""
 echo "✅ Services running:"
 echo "   nginx  → http://localhost (port 80)"
-echo "   API    → http://localhost/api/"
+echo "   API    → http://localhost/api/v1/"
 echo "   Web    → http://localhost/"
 echo ""
 echo "📋 Status:"
