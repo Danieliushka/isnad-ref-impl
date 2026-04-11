@@ -24,6 +24,7 @@ interface V3CheckResult {
     track_record: V3Dimension;
     presence: V3Dimension;
     endorsements: V3Dimension;
+    infra_integrity?: V3Dimension;
   };
 }
 
@@ -160,7 +161,7 @@ export default function AgentProfilePage() {
         if (v2.status === 'fulfilled') setTrustV2(v2.value);
         // Also fetch v3 check for proper dimensions
         try {
-          const v3res = await fetch(`${API_BASE}/check/${encodeURIComponent(agentId)}`);
+          const v3res = await fetch(`${API_BASE}/trust/${encodeURIComponent(agentId)}`);
           if (v3res.ok) { const v3data = await v3res.json(); if (!cancelled) setV3Check(v3data); }
         } catch {}
 
@@ -232,6 +233,7 @@ export default function AgentProfilePage() {
     { label: 'Track Record', value: dims.track_record.raw },
     { label: 'Presence', value: dims.presence.raw },
     { label: 'Endorsements', value: dims.endorsements.raw },
+    ...(dims.infra_integrity ? [{ label: 'Infrastructure', value: dims.infra_integrity.raw }] : []),
   ] : signals ? [
     { label: 'Reputation', value: signals.platform_reputation.score },
     { label: 'Delivery', value: signals.delivery_track_record.score },
@@ -429,6 +431,7 @@ export default function AgentProfilePage() {
                   <ScoreBar label="Track Record" score={Math.round(dims.track_record.raw * 100)} delay={0.4} />
                   <ScoreBar label="Presence" score={Math.round(dims.presence.raw * 100)} delay={0.5} />
                   <ScoreBar label="Endorsements" score={Math.round(dims.endorsements.raw * 100)} delay={0.6} />
+                  {dims.infra_integrity && <ScoreBar label="Infrastructure" score={Math.round(dims.infra_integrity.raw * 100)} delay={0.7} />}
                 </div>
               ) : signals ? (
                 <div className="space-y-5">

@@ -179,7 +179,7 @@ class Database:
     async def list_agents(self, limit: int = 100, offset: int = 0) -> list[dict]:
         async with self._pool.acquire() as conn:
             rows = await conn.fetch(
-                "SELECT * FROM agents ORDER BY created_at DESC LIMIT $1 OFFSET $2",
+                "SELECT * FROM agents ORDER BY trust_score DESC, created_at DESC LIMIT $1 OFFSET $2",
                 limit, offset,
             )
         return [_record_to_dict(r) for r in rows]

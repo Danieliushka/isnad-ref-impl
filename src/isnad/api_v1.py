@@ -85,7 +85,7 @@ class CanonicalTrustResponse(BaseModel):
     grade: str = Field("UNKNOWN", description="UNKNOWN | EMERGING | ESTABLISHED | TRUSTED")
     confidence: float = Field(0.0, ge=0.0, le=1.0, description="Confidence 0.0-1.0")
     dimensions: Optional[dict[str, CanonicalDimension]] = Field(
-        None, description="Scoring dimensions: provenance (30%), track_record (35%), presence (20%), endorsements (15%)")
+        None, description="Scoring dimensions: provenance (25%), track_record (30%), presence (20%), endorsements (15%), infra_integrity (10%)")
     decay_factor: float = Field(1.0, description="Freshness decay multiplier")
     verified_sources: list[str] = Field(default_factory=list, description="Platforms with verified presence")
     badges: list[BadgeSummary] = Field(default_factory=list, description="Earned badges")
@@ -797,16 +797,19 @@ async def _run_v3_check(agent_identifier: str, request: Request, raw_hash: str |
             categories = [
                 CategoryScore(name="provenance", score=round(v3_result.provenance.raw * 100),
                               modules_passed=round(v3_result.provenance.raw * 10), modules_total=10,
-                              findings=[f"Provenance: {v3_result.provenance.raw:.0%} (weight 30%)"]),
+                              findings=[f"Provenance: {v3_result.provenance.raw:.0%} (weight 25%)"]),
                 CategoryScore(name="track_record", score=round(v3_result.track_record.raw * 100),
                               modules_passed=round(v3_result.track_record.raw * 10), modules_total=10,
-                              findings=[f"Track Record: {v3_result.track_record.raw:.0%} (weight 35%)"]),
+                              findings=[f"Track Record: {v3_result.track_record.raw:.0%} (weight 30%)"]),
                 CategoryScore(name="presence", score=round(v3_result.presence.raw * 100),
                               modules_passed=round(v3_result.presence.raw * 10), modules_total=10,
                               findings=[f"Presence: {v3_result.presence.raw:.0%} (weight 20%)"]),
                 CategoryScore(name="endorsements", score=round(v3_result.endorsements.raw * 100),
                               modules_passed=round(v3_result.endorsements.raw * 10), modules_total=10,
                               findings=[f"Endorsements: {v3_result.endorsements.raw:.0%} (weight 15%)"]),
+                CategoryScore(name="infra_integrity", score=round(v3_result.infra_integrity.raw * 100),
+                              modules_passed=round(v3_result.infra_integrity.raw * 10), modules_total=10,
+                              findings=[f"Infrastructure Integrity: {v3_result.infra_integrity.raw:.0%} (weight 10%)"]),
             ]
 
             att_count = v3_result.data_snapshot.get("internal", {}).get("attestations", 0)
@@ -821,6 +824,7 @@ async def _run_v3_check(agent_identifier: str, request: Request, raw_hash: str |
                     "track_record": DimensionScore(raw=v3_result.track_record.raw, weighted=v3_result.track_record.weighted),
                     "presence": DimensionScore(raw=v3_result.presence.raw, weighted=v3_result.presence.weighted),
                     "endorsements": DimensionScore(raw=v3_result.endorsements.raw, weighted=v3_result.endorsements.weighted),
+                    "infra_integrity": DimensionScore(raw=v3_result.infra_integrity.raw, weighted=v3_result.infra_integrity.weighted),
                 },
                 decay_factor=v3_result.decay_factor,
                 risk_flags=risk_flags,
@@ -948,10 +952,11 @@ async def check_agent(agent_id: str, request: Request):
 # ---------------------------------------------------------------------------
 
 _DIMENSION_WEIGHTS = {
-    "provenance": 0.30,
-    "track_record": 0.35,
+    "provenance": 0.25,
+    "track_record": 0.30,
     "presence": 0.20,
     "endorsements": 0.15,
+    "infra_integrity": 0.10,
 }
 
 
@@ -1006,11 +1011,25 @@ async def get_canonical_trust(agent_id: str, request: Request):
     audit = await _db.get_latest_score_audit(resolved_id)
     if audit:
         dimensions = {}
+        # Parse data_snapshot for dimensions not stored as columns (e.g. infra_integrity)
+        snapshot = audit.get("data_snapshot")
+        if isinstance(snapshot, str):
+            try:
+                import json as _json
+                snapshot = _json.loads(snapshot)
+            except Exception:
+                snapshot = {}
+        elif not isinstance(snapshot, dict):
+            snapshot = {}
         for dim_name, weight in _DIMENSION_WEIGHTS.items():
-            raw_val = audit.get(f"{dim_name}_raw", 0.0) or 0.0
+            raw_val = audit.get(f"{dim_name}_raw", None)
+            if raw_val is None and dim_name == "infra_integrity":
+                # Fallback: read from data_snapshot
+                raw_val = (snapshot.get("infra", {}) or {}).get("score", 0.0)
+            raw_val = raw_val or 0.0
             dimensions[dim_name] = CanonicalDimension(
-                raw=round(raw_val, 4),
-                weighted=round(raw_val * weight, 4),
+                raw=round(float(raw_val), 4),
+                weighted=round(float(raw_val) * weight, 4),
                 weight=weight,
             )
         decay_factor = audit.get("decay_factor", 1.0) or 1.0
@@ -1179,14 +1198,17 @@ async def explorer_detail(agent_id: str):
         try:
             agent_row = await _db.get_agent(agent_id)
             if agent_row is None:
+                agent_row = await _db.get_agent_by_name(agent_id)
+            if agent_row is None:
                 agent_row = await _db.get_agent_by_pubkey(agent_id)
         except Exception:
             pass
 
     if agent_row:
+        resolved_id = agent_row["id"]
         atts = []
         try:
-            atts = await _db.get_attestations_for_subject(agent_id)
+            atts = await _db.get_attestations_for_subject(resolved_id)
         except Exception:
             pass
         import json
@@ -1436,7 +1458,7 @@ async def list_agents(
         total = count_row["cnt"]
 
         rows = await conn.fetch(
-            f"SELECT * FROM agents {where} ORDER BY created_at DESC LIMIT ${param_idx} OFFSET ${param_idx + 1}",
+            f"SELECT * FROM agents {where} ORDER BY trust_score DESC, created_at DESC LIMIT ${param_idx} OFFSET ${param_idx + 1}",
             *params, limit, offset,
         )
 
@@ -1618,9 +1640,14 @@ async def get_trust_report(agent_id: str):
 
     agent = await _db.get_agent(agent_id)
     if not agent:
+        agent = await _db.get_agent_by_name(agent_id)
+    if not agent:
+        agent = await _db.get_agent_by_pubkey(agent_id)
+    if not agent:
         raise HTTPException(status_code=404, detail="Agent not found")
 
-    platform_data = await _db.get_platform_data(agent_id)
+    resolved_id = agent["id"]
+    platform_data = await _db.get_platform_data(resolved_id)
 
     from isnad.trustscore.scorer_v2 import PlatformTrustCalculator
     calc = PlatformTrustCalculator(platform_data)
@@ -2348,8 +2375,16 @@ async def get_score_breakdown(agent_id: str):
             RealScoreCategory(**c) for c in report.get("categories", [])
         ]
 
-        from scoring.engine import score_to_tier, tier_emoji as _tier_emoji
-        tier = report.get("tier", score_to_tier(report.get("total_score", 0)))
+        def _score_to_tier(s):
+            if s >= 80: return "TRUSTED"
+            if s >= 60: return "VERIFIED"
+            if s >= 40: return "BASIC"
+            if s >= 20: return "UNVERIFIED"
+            return "UNKNOWN"
+        def _tier_emoji(t):
+            return {"TRUSTED": "🟢", "VERIFIED": "🔵", "BASIC": "🟡", "UNVERIFIED": "🟠", "UNKNOWN": "🔴"}.get(t, "⚪")
+
+        tier = report.get("tier", _score_to_tier(report.get("total_score", 0)))
 
         return RealScoreBreakdownResponse(
             agent_id=resolved_id,
@@ -2363,9 +2398,16 @@ async def get_score_breakdown(agent_id: str):
         )
 
     # No scoring-engine report yet — return basic info
-    from scoring.engine import score_to_tier, tier_emoji as _tier_emoji
+    def _score_to_tier(s):
+        if s >= 80: return "TRUSTED"
+        if s >= 60: return "VERIFIED"
+        if s >= 40: return "BASIC"
+        if s >= 20: return "UNVERIFIED"
+        return "UNKNOWN"
+    def _tier_emoji(t):
+        return {"TRUSTED": "🟢", "VERIFIED": "🔵", "BASIC": "🟡", "UNVERIFIED": "🟠", "UNKNOWN": "🔴"}.get(t, "⚪")
     ts = agent.get("trust_score", 0) or 0
-    tier = score_to_tier(ts)
+    tier = _score_to_tier(ts)
     return RealScoreBreakdownResponse(
         agent_id=resolved_id,
         agent_name=agent.get("name", ""),
@@ -2397,6 +2439,44 @@ async def recalculate_score(agent_id: str, _admin: bool = Depends(require_admin_
     from isnad.scoring.engine_v3 import ScoringEngineV3
     engine = ScoringEngineV3(db=_db)
     result = await engine.compute_and_store(agent)
+
+    # Also store full report in trust_checks so GET /check/{id} returns fresh data
+    try:
+        now = datetime.now(timezone.utc)
+        report_data = {
+            "agent_id": agent["id"],
+            "overall_score": result.final_score,
+            "confidence": result.confidence,
+            "tier": result.tier,
+            "dimensions": {
+                "provenance": {"raw": result.provenance.raw, "weighted": result.provenance.weighted},
+                "track_record": {"raw": result.track_record.raw, "weighted": result.track_record.weighted},
+                "presence": {"raw": result.presence.raw, "weighted": result.presence.weighted},
+                "endorsements": {"raw": result.endorsements.raw, "weighted": result.endorsements.weighted},
+                "infra_integrity": {"raw": result.infra_integrity.raw, "weighted": result.infra_integrity.weighted},
+            },
+            "decay_factor": result.decay_factor,
+            "risk_flags": [],
+            "attestation_count": result.data_snapshot.get("internal", {}).get("attestations", 0),
+            "last_checked": now.isoformat() + "Z",
+            "categories": [
+                {"name": "provenance", "score": round(result.provenance.raw * 100), "modules_passed": round(result.provenance.raw * 10), "modules_total": 10, "findings": [f"Provenance: {result.provenance.raw:.0%} (weight 25%)"]},
+                {"name": "track_record", "score": round(result.track_record.raw * 100), "modules_passed": round(result.track_record.raw * 10), "modules_total": 10, "findings": [f"Track Record: {result.track_record.raw:.0%} (weight 30%)"]},
+                {"name": "presence", "score": round(result.presence.raw * 100), "modules_passed": round(result.presence.raw * 10), "modules_total": 10, "findings": [f"Presence: {result.presence.raw:.0%} (weight 20%)"]},
+                {"name": "endorsements", "score": round(result.endorsements.raw * 100), "modules_passed": round(result.endorsements.raw * 10), "modules_total": 10, "findings": [f"Endorsements: {result.endorsements.raw:.0%} (weight 15%)"]},
+                {"name": "infra_integrity", "score": round(result.infra_integrity.raw * 100), "modules_passed": round(result.infra_integrity.raw * 10), "modules_total": 10, "findings": [f"Infrastructure Integrity: {result.infra_integrity.raw:.0%} (weight 10%)"]},
+            ],
+            "certification_id": "",
+            "certified": result.final_score >= 60 and result.confidence >= 0.4,
+        }
+        import json as _json
+        async with _db._pool.acquire() as conn:
+            await conn.execute(
+                "INSERT INTO trust_checks (agent_id, report, score, requested_at) VALUES ($1, $2, $3, $4)",
+                agent["id"], _json.dumps(report_data), result.final_score / 100.0, now.isoformat(),
+            )
+    except Exception as e:
+        logger.warning("Failed to store trust check report: %s", e)
 
     return RecalculateResponse(
         agent_id=agent["id"],
