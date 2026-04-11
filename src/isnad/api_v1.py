@@ -1255,6 +1255,7 @@ class SimpleRegisterRequest(BaseModel):
     agent_name: str = Field(..., min_length=1, max_length=100)
     description: str = Field("", max_length=1000)
     homepage_url: str | None = None
+    public_key: str | None = Field(None, min_length=64, max_length=64, description="Optional: agent's own Ed25519 public key (64 hex chars). If provided, used instead of generating a new one.")
 
 
 class SimpleRegisterResponse(BaseModel):
@@ -1318,8 +1319,16 @@ async def simple_register(request: Request, body: SimpleRegisterRequest):
         raise HTTPException(status_code=409, detail=f"Agent with name '{body.agent_name}' already exists")
 
     # Generate keypair + API key
-    signing_key = SigningKey.generate()
-    public_key_hex = signing_key.verify_key.encode().hex()
+    if body.public_key:
+        # Validate it's valid hex
+        try:
+            bytes.fromhex(body.public_key)
+            public_key_hex = body.public_key
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid public_key: must be 64 hex characters")
+    else:
+        signing_key = SigningKey.generate()
+        public_key_hex = signing_key.verify_key.encode().hex()
     raw_api_key = f"isnad_{secrets.token_urlsafe(32)}"
     api_key_hash = hashlib.sha256(raw_api_key.encode()).hexdigest()
     agent_id = str(uuid.uuid4())
@@ -1342,6 +1351,48 @@ async def simple_register(request: Request, body: SimpleRegisterRequest):
     await _db.update_agent(agent_id, **update_fields)
 
     return SimpleRegisterResponse(agent_id=agent_id, api_key=raw_api_key)
+
+
+class UpdatePubkeyRequest(BaseModel):
+    """Request body for updating an agent's stored public key."""
+    public_key: str = Field(..., min_length=64, max_length=64, description="Agent's Ed25519 public key (64 hex chars)")
+
+
+@router.patch("/agents/{agent_id}/pubkey")
+async def update_agent_pubkey(agent_id: str, body: UpdatePubkeyRequest, request: Request):
+    """Update the stored public key for an already-registered agent.
+
+    Requires the agent's API key in the X-API-Key header. Allows an agent to
+    correct a mismatch between the server-stored public key and the key it
+    actually uses for signing evidence.
+    """
+    if _db is None:
+        raise HTTPException(status_code=503, detail="Database not available")
+
+    # Validate API key
+    api_key = request.headers.get("X-API-Key")
+    if not api_key:
+        raise HTTPException(status_code=401, detail="Missing API key")
+
+    agent = await _db.get_agent(agent_id)
+    if not agent:
+        raise HTTPException(status_code=404, detail="Agent not found")
+
+    stored_hash = agent.get("api_key_hash", "")
+    if not stored_hash or not timing_safe_validate_key(api_key, stored_hash):
+        ip = request.client.host if request.client else "unknown"
+        log_auth_failure(ip, "invalid API key for agent", request.url.path)
+        raise HTTPException(status_code=403, detail="Invalid API key for this agent")
+
+    # Validate public_key is valid hex
+    try:
+        bytes.fromhex(body.public_key)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid public_key: must be 64 hex characters")
+
+    await _db.update_agent(agent_id, public_key=body.public_key)
+
+    return {"agent_id": agent_id, "public_key": body.public_key, "updated": True}
 
 
 # ---------------------------------------------------------------------------
