@@ -247,6 +247,7 @@ class AgentRegisterRequest(BaseModel):
     offerings: str = Field("", max_length=2000)
     avatar_url: str | None = None
     contact_email: str | None = None
+    public_key: str | None = Field(None, min_length=64, max_length=64, description="Optional: agent's own Ed25519 public key (64 hex chars). If provided, used instead of generating a new one.")
 
 class AgentRegisterResponse(BaseModel):
     agent_id: str
@@ -1418,9 +1419,16 @@ async def register_agent(request: Request, body: AgentRegisterRequest):
     if existing:
         raise HTTPException(status_code=409, detail=f"Agent with name '{body.name}' already exists")
 
-    # Generate Ed25519 keypair
-    signing_key = SigningKey.generate()
-    public_key_hex = signing_key.verify_key.encode().hex()
+    # Use provided public key or generate a new keypair
+    if body.public_key:
+        try:
+            bytes.fromhex(body.public_key)
+            public_key_hex = body.public_key
+        except ValueError:
+            raise HTTPException(status_code=400, detail="Invalid public_key: must be 64 hex characters")
+    else:
+        signing_key = SigningKey.generate()
+        public_key_hex = signing_key.verify_key.encode().hex()
 
     # Generate API key
     raw_api_key = f"isnad_{secrets.token_urlsafe(32)}"
